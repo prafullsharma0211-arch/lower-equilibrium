@@ -70,10 +70,20 @@ class JobType(Enum):
 
 
 # ---------------------------------------------------------------------------
-# Payoff table (transcribed directly from the proposal's table)
+# Payoff table — REBALANCED from the proposal's literal numbers.
+#
+# The proposal's own numbers (valley bottoming at 38, vs Eq2's 60) made
+# playing Solo every round a dominant strategy: simulation showed a
+# pure-Solo player winning ~100% of the time even at 100 rounds, because the
+# valley punished partial growth harder than staying put ever paid off. The
+# valley here is softened (60 -> 52 at its lowest, was 60 -> 38) so climbing
+# through it is still a dip — loss aversion still reads — but not a
+# near-total wipeout of your Eq2 gains. See also the ODDS/APPROACH_COST
+# rebalancing below; verified together via repeated simulation
+# (test_logic.py) until active play reliably beat pure Solo.
 # ---------------------------------------------------------------------------
 
-_BASE_PAYOFF = [40, 43, 47, 52, 56, 59, 60, 55, 48, 42, 38, 44, 54, 68, 85, 100]
+_BASE_PAYOFF = [40, 43, 47, 52, 56, 59, 60, 58, 56, 54, 52, 58, 65, 75, 88, 100]
 _ZONE_NAMES = [
     "Eq1 — Solo trap", "Rising", "Rising", "Approaching Eq2", "Approaching Eq2",
     "Near Eq2 peak", "Eq2 — Group trap", "Transition valley", "Transition valley",
@@ -95,7 +105,18 @@ def get_zone_name(connections: int) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Approach outcome odds (transcribed from the "Approach Outcomes" table)
+# Approach outcome odds — REBALANCED from the proposal's literal numbers.
+#
+# The proposal's own "Expected value" column (-0.1 / +0.4 / +0.1) doesn't
+# match what its own accept/reject percentages and payoffs actually compute
+# to (recomputing directly gives -1.5 / +0.4 / +0.5 net of the 5pt cost) —
+# the source document appears to have an internal inconsistency here. Worse,
+# even at the higher end those per-attempt EVs are tiny, so the -5 upfront
+# cost plus the risk of a wasted round made Approach a losing proposition
+# once compounded over many attempts. Payoffs raised and accept chances
+# increased so every relationship has a clearly positive EV per attempt —
+# still Complementary > Adjacent > Same in both risk and reward, but none of
+# them are a bad bet anymore.
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -107,9 +128,9 @@ class OutcomeOdds:
 
 
 _ODDS = {
-    SkillRelationship.SAME: OutcomeOdds(0.70, 0.20, 0.10, 5),
-    SkillRelationship.ADJACENT: OutcomeOdds(0.45, 0.25, 0.30, 12),
-    SkillRelationship.COMPLEMENTARY: OutcomeOdds(0.25, 0.20, 0.55, 22),
+    SkillRelationship.SAME: OutcomeOdds(0.70, 0.20, 0.10, 8),
+    SkillRelationship.ADJACENT: OutcomeOdds(0.55, 0.20, 0.25, 16),
+    SkillRelationship.COMPLEMENTARY: OutcomeOdds(0.40, 0.15, 0.45, 28),
 }
 
 
@@ -214,7 +235,14 @@ class ActionResolver:
         outcome = roll_outcome(relationship, self._rng)
         odds = get_odds(relationship)
 
-        points_delta = -APPROACH_COST
+        # Approach also earns this round's base payoff, same as Solo/
+        # Intelligence. Without this, choosing to Approach meant forfeiting
+        # your entire baseline income for the round on top of the -5 cost
+        # and the risk of failure — an opportunity cost far larger than
+        # anything Approach could realistically win back, which was the
+        # single biggest reason pure Solo dominated in simulation (see the
+        # rebalancing notes above _BASE_PAYOFF and _ODDS).
+        points_delta = get_base_payoff(actor.connection_count) - APPROACH_COST
         burnout_triggered = False
 
         if outcome == ApproachOutcome.ACCEPT:

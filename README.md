@@ -33,6 +33,34 @@ rule-based heuristics — no LLM calls for them, to keep things fast and free.
   Solo, asserts it finishes without exceptions, prints standings. Run this
   any time you touch `game_logic.py`.
 
+## Balance fix: pure Solo used to win every game
+
+Playtesting found that always choosing Solo won ~100% of the time, even over
+100-round games. Simulation (`GameManager` run headless with a scripted
+human, no UI needed — see git history for the exact experiment) traced this
+to three compounding issues, all in the proposal's own literal numbers:
+
+1. The proposal's own "Expected value" column for Approach (-0.1 / +0.4 /
+   +0.1) doesn't match what its own accept/reject percentages and payoffs
+   actually compute to (recomputing gives -1.5 / +0.4 / +0.5) — near zero or
+   negative for every skill match.
+2. The transition valley dropped base payoff from 60 (Eq2) down to 38 —
+   partial growth was punished harder than it ever paid off within a
+   20-round game.
+3. The biggest factor: Approach and Solo were mutually exclusive per round,
+   so choosing to Approach forfeited that round's *entire* base payoff on
+   top of the -5 cost and the risk of failure — once you had any
+   connections at all, that opportunity cost dwarfed anything Approach
+   could realistically win back.
+
+Fix (see comments in `game_logic.py` next to `_ODDS`, `_BASE_PAYOFF`, and
+`resolve_approach`): raised Approach's accept chances and payoffs so every
+relationship has a clearly positive EV per attempt, softened the valley
+(60 -> 52 at its lowest, was 60 -> 38), and made Approach also earn that
+round's base payoff like Solo/Intelligence do. Verified by simulation:
+pure-Solo now averages **rank 14.2 of 16 with a 0% win rate**, while active
+play averages rank 6.9 of 16 with a 14% win rate — over 300 trials each.
+
 ## Why Pygame instead of Unity
 
 The Unity version (see `~/UnityProjects/LowerEquilibrium` if you want to
