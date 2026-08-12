@@ -712,24 +712,84 @@ class App:
             text = self.font_small.render(line, True, COLOR_TEXT)
             self.screen.blit(text, (panel.left + 12, panel.top + 10 + i * 20))
 
+    def _network_visibility(self):
+        """Which players the human has real information about, mirroring
+        Granovetter's weak-ties idea that what you know about someone
+        depends on your position in the network, not on omniscience:
+        - direct connection: exact connection count, real burnout status
+        - one hop out (a connection of a connection): a fuzzy bucket only,
+          credited to whichever mutual connection is the source
+        - anyone else: unknown — that's what the paid Intelligence action
+          is for
+        Returns {player_id: ("direct"|"indirect", extra)} where extra is
+        None for direct and the mutual connection's name for indirect.
+        """
+        human = self.game.human
+        by_id = {p.id: p for p in self.game.players}
+        direct = set(human.connection_ids)
+        tiers = {pid: ("direct", None) for pid in direct}
+        for pid in direct:
+            mutual = by_id.get(pid)
+            if not mutual:
+                continue
+            for hop_id in mutual.connection_ids:
+                if hop_id == human.id or hop_id in direct or hop_id in tiers:
+                    continue
+                tiers[hop_id] = ("indirect", mutual.name)
+        return tiers
+
+    @staticmethod
+    def _connection_bucket(count: int) -> str:
+        if count == 0:
+            return "no connections yet"
+        if count <= 3:
+            return "a few connections"
+        if count <= 7:
+            return "several connections"
+        return "many connections"
+
     def _draw_target_picker(self):
         others = self.game.get_other_players()
-        panel_height = min(HEIGHT - 140, 40 + len(others) * 28)
-        panel = pygame.Rect(WIDTH - 270, 130, 250, panel_height)
+        visibility = self._network_visibility()
+        row_h = 34
+        panel_height = min(HEIGHT - 140, 40 + len(others) * row_h)
+        panel = pygame.Rect(WIDTH - 300, 130, 280, panel_height)
         pygame.draw.rect(self.screen, COLOR_PANEL, panel, border_radius=6)
 
         title = self.font_small.render("Choose a target:", True, COLOR_TEXT)
         self.screen.blit(title, (panel.left + 12, panel.top + 8))
 
+        # Cancel lives in the title bar (not a separate bottom row) so the
+        # full panel body is available for target rows — with up to 15
+        # targets and two lines of info each, a bottom-anchored button ate
+        # into the list and clipped the last few entries.
+        self.cancel_picker_button.rect = pygame.Rect(panel.right - 76, panel.top + 5, 66, 22)
+
         self._picker_rows = []
         for i, p in enumerate(others):
-            row_rect = pygame.Rect(panel.left + 10, panel.top + 32 + i * 28, panel.width - 20, 24)
+            row_rect = pygame.Rect(panel.left + 10, panel.top + 32 + i * row_h, panel.width - 20, row_h - 4)
             if row_rect.bottom > panel.bottom - 4:
                 break
             pygame.draw.rect(self.screen, (40, 60, 100), row_rect, border_radius=4)
             skill_label = p.skill.name.replace("_", " ").title()
             label = self.font_small.render(f"{p.name} ({skill_label})", True, COLOR_TEXT)
-            self.screen.blit(label, (row_rect.left + 8, row_rect.top + 3))
+            self.screen.blit(label, (row_rect.left + 8, row_rect.top + 2))
+
+            tier, extra = visibility.get(p.id, (None, None))
+            if tier == "direct":
+                info = f"{p.connection_count} connections"
+                if p.is_burned_out:
+                    info += " • burned out"
+                info_color = (150, 220, 150)
+            elif tier == "indirect":
+                info = f"~{self._connection_bucket(p.connection_count)} (via {extra})"
+                info_color = COLOR_TEXT_DIM
+            else:
+                info = "connections unknown"
+                info_color = COLOR_TEXT_DIM
+            info_surf = self.font_small.render(info, True, info_color)
+            self.screen.blit(info_surf, (row_rect.left + 8, row_rect.top + 18))
+
             self._picker_rows.append((row_rect, p))
 
         self.cancel_picker_button.draw(self.screen)

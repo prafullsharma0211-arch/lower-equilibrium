@@ -207,6 +207,27 @@ you approach someone, not a single narrated paragraph:
   hand-written exchange variants per outcome (accept/status quo/reject), so
   the conversation feel doesn't depend on having a key configured.
 
+## Network-aware target picker
+
+The Approach/Intelligence target list (`App._network_visibility()` in
+`main.py`) now gates what you're shown by your actual position in the
+network, not omniscience — a direct nod to Granovetter's weak ties, the
+theory the whole game is built on:
+
+- **Direct connection**: exact connection count and real burnout status.
+- **One hop out** (a connection of one of your connections): a fuzzy bucket
+  ("a few / several / many connections"), credited to whichever connection
+  is the source ("via Bot 4") rather than an exact number — you heard it
+  secondhand.
+- **Everyone else**: "connections unknown." That's what the paid
+  Intelligence action is for — it's the only way to learn something
+  concrete about a total stranger.
+
+This makes Approach a real decision instead of a coin flip on a name you've
+never seen before, and it makes *building* connections valuable for
+information, not just points — the more people you know, the more of the
+village you can actually see.
+
 ## Known limitations
 
 - Visuals are flat vector shapes, not sprite art — intentional, matches the
