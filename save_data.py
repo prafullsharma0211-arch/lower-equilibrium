@@ -26,6 +26,7 @@ class SaveData:
     best_score: int = 0
     total_points_ever: int = 0
     achievements: list = field(default_factory=list)  # achievement ids, order = unlock order
+    tutorial_seen: bool = False
 
 
 def load() -> SaveData:
@@ -39,6 +40,7 @@ def load() -> SaveData:
             best_score=int(raw.get("best_score", 0)),
             total_points_ever=int(raw.get("total_points_ever", 0)),
             achievements=list(raw.get("achievements", [])),
+            tutorial_seen=bool(raw.get("tutorial_seen", False)),
         )
     except (json.JSONDecodeError, OSError, TypeError, ValueError):
         return SaveData()

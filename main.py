@@ -19,6 +19,7 @@ from achievements import ACHIEVEMENTS, AchievementTracker
 from facilitator import FacilitatorClient, parse_dialogue
 from game_logic import (
     ActionType,
+    ApproachOutcome,
     ApproachResult,
     GameManager,
     IntelligenceResult,
@@ -61,6 +62,98 @@ RISK_STYLE_INFO = {
     RiskStyle.BALANCED: ("Balanced", "The proposal's numbers, unmodified. A bit of everything."),
     RiskStyle.BOLD: ("Bold", "Same cost, bigger payoffs, lower accept chance. Bigger swings both ways."),
 }
+
+ACTION_TOOLTIPS = {
+    "solo": [
+        "Work your own land this round.",
+        "Always earns your Zone's payoff.",
+        "No cost, no risk.",
+    ],
+    "approach": [
+        "Try to connect with someone at the market.",
+        "You still earn your Zone payoff, but you",
+        "also pay a cost, and the outcome is a bet:",
+        "they may connect (bonus + new connection),",
+        "stay unsure (nothing changes), or say no.",
+    ],
+    "intelligence": [
+        "Pay a couple of points to learn one true",
+        "fact about someone (skill, points,",
+        "connections, or burnout). Still earns your",
+        "Zone payoff too. Cheap way to scout before",
+        "you Approach.",
+    ],
+}
+
+HELP_PAGES = [
+    ("What is this game?", [
+        "Lower Equilibrium is a social-network strategy game. You're one of "
+        "16 villagers (you + 15 bots), playing 20 rounds.",
+        "Goal: end Round 20 with the most points. Points come from working "
+        "your own land, and from successfully connecting with other "
+        "villagers.",
+        "Each round, everyone -- you and all 15 bots -- secretly picks ONE "
+        "action. Once everyone's chosen, the round resolves and the next "
+        "one begins.",
+        "The screen with houses around a marketplace is just the map. The "
+        "actual game happens through the three buttons at the bottom.",
+    ]),
+    ("The three actions", [
+        "Solo -- work your own land. Always earns your current Zone's "
+        "payoff (see next page). No cost, no risk.",
+        "Approach -- go to the market and try to connect with someone. "
+        "You still earn your Solo payoff too, but you also pay an upfront "
+        "cost, and the result is uncertain: they may connect with you "
+        "(bonus points + a new connection), stay unsure (nothing changes), "
+        "or say no (no connection -- and three rejections in a row burns "
+        "you out for a couple of rounds, during which Approach is "
+        "unavailable).",
+        "Intelligence -- pay a couple of points to learn one true fact "
+        "about someone (their skill, points, connections, or burnout "
+        "status). Still earns your Zone payoff too. Cheap way to scout "
+        "before you Approach.",
+        "Same-skill people are the safest Approach (best odds, smallest "
+        "bonus). Complementary-skill people are the riskiest (worst odds, "
+        "biggest bonus if it lands). Exact odds aren't shown -- like real "
+        "relationships, it's a bet, not a guarantee. That uncertainty is "
+        "the point: the game is built on prospect theory, how people "
+        "actually decide under risk.",
+    ]),
+    ("Zones, connections, and what you can see", [
+        "Your Zone is just a name for how many active connections you "
+        "have -- more connections usually means a bigger Solo payoff.",
+        "One twist: pushing past 6 connections temporarily DIPS your "
+        "payoff before it climbs again (the 'Transition valley') -- "
+        "growth costs you before it pays off, the same loss-aversion "
+        "pattern the course covers.",
+        "Eq1 = 0 connections (lowest payoff). Eq2 (~6 connections) is a "
+        "tempting local peak. Eq3 (14-15 connections) is the best zone in "
+        "the game.",
+        "The white lines on the village map show connections between ALL "
+        "villagers -- you can see who's talking to whom, but that doesn't "
+        "mean you know them. In the Approach/Intelligence list you'll see "
+        "real numbers only for people you're directly connected to, a "
+        "fuzzy guess for friends-of-friends, and 'unknown' for strangers.",
+        "You can't see everyone's exact points during the game either -- "
+        "only the current round leader gets mentioned. Full standings are "
+        "revealed at Round 20.",
+    ]),
+    ("Playstyles, achievements, getting unstuck", [
+        "Before your first game you pick a playstyle -- it only affects "
+        "Approach, for the whole game: Cautious is cheaper and safer with "
+        "a smaller payoff, Bold costs the same but swings bigger both "
+        "ways, Balanced is the middle ground.",
+        "There are 8 achievements to unlock (first connection, reaching "
+        "each Zone, surviving a burnout, and more) -- check the "
+        "Achievements screen from the main menu any time.",
+        "Your best score, games played, and unlocked achievements are "
+        "saved automatically across games. That's the actual replay "
+        "value -- not any single game's result.",
+        "Stuck mid-game? There's a Menu button in the corner of the Home "
+        "and Market screens that takes you back to the main menu any "
+        "time, and a ? button that reopens this guide.",
+    ]),
+]
 
 SKY_TOP = (117, 178, 222)
 SKY_HORIZON = (219, 197, 150)
@@ -266,14 +359,21 @@ class App:
         self.points_text = "Points: 0"
         self.connections_text = "Connections: 0"
         self.zone_text = "-"
+        self.rank_text = "-"
+        self._points_before_action = 0
+        self._last_approach_result = None
         # Separate narration per screen — round-summary text (Home) must never
         # stomp on the market visit's own narration, and vice versa.
         self.home_narration = "Welcome. Choose an action once the round begins."
 
-        self.screen_state = "style_select"  # "style_select" | "home" | "market"
+        # "style_select" | "home" | "market" | "help" | "achievements"
+        self.screen_state = "style_select"
+        self._help_return_state = "style_select"
+        self.help_page = 0
         self.target_picker_open = False
         self.pending_action = None  # ActionType.APPROACH | ActionType.INTELLIGENCE
         self._picker_rows = []
+        self.hover_tooltip = None  # (lines, mouse_pos) while hovering an action button
 
         self.market_target = None
         self.market_timer = 0.0
@@ -301,6 +401,16 @@ class App:
 
         self._build_buttons()
         self._build_style_buttons()
+
+        # A real playtester with zero context had no idea what the game was,
+        # what the buttons did, or how a round worked (see README for the
+        # full list of confusion points this addresses) — so the how-to-play
+        # guide is forced open on the very first launch, not just tucked
+        # behind a button nobody would think to click first.
+        if not self.save_data.tutorial_seen:
+            self._open_help(return_state="style_select")
+            self.save_data.tutorial_seen = True
+            save_data.save(self.save_data)
 
     # ------------------------------------------------------------------
     # Setup
@@ -337,11 +447,15 @@ class App:
         self.points_text = "Points: 0"
         self.connections_text = "Connections: 0"
         self.zone_text = "-"
+        self.rank_text = "-"
+        self._last_approach_result = None
         self.home_narration = (
-            "Welcome. Choose an action once the round begins."
-            if self.has_key
-            else "Welcome. (No API key set — using local narration.) Choose an action once the round begins."
+            "Round 1 of 20. Pick Solo for a safe guaranteed payoff, Approach to "
+            "risk points on a new connection, or Intelligence to scout someone "
+            "first — hover a button (or tap ? Help) for details."
         )
+        if not self.has_key:
+            self.home_narration += " (No API key set — using local narration.)"
         self.game_over = False
         self.final_standings = []
         self.screen_state = "home"
@@ -358,11 +472,36 @@ class App:
             lambda: self._open_target_picker(ActionType.INTELLIGENCE), self.font,
         )
         self.action_buttons = [self.solo_button, self.approach_button, self.intel_button]
+        self._action_tooltips = {
+            self.solo_button: ACTION_TOOLTIPS["solo"],
+            self.approach_button: ACTION_TOOLTIPS["approach"],
+            self.intel_button: ACTION_TOOLTIPS["intelligence"],
+        }
         self._set_buttons_enabled(False)
 
         self.cancel_picker_button = Button((WIDTH - 250, HEIGHT - 60, 220, 36), "Cancel", self._close_target_picker, self.font_small)
-        self.return_button = Button((WIDTH // 2 - 110, HEIGHT - 170, 220, 44), "Return to Village", self._return_home, self.font)
+        self.return_button = Button((WIDTH // 2 - 110, HEIGHT - 204, 220, 44), "Return to Village", self._return_home, self.font)
         self.play_again_button = Button((WIDTH // 2 - 110, HEIGHT - 60, 220, 44), "Play Again", self._play_again, self.font)
+
+        # Always-available escape hatches (addresses "there is no restart
+        # button" / "how do I get unstuck" feedback) — shown on Home and
+        # Market, not just after game over.
+        self.menu_button = Button((WIDTH - 180, 20, 80, 32), "Menu", self._play_again, self.font_small)
+        self.ingame_help_button = Button((WIDTH - 90, 20, 70, 32), "? Help", lambda: self._open_help(), self.font_small)
+
+        # Style-select entry points into the guide and the achievement list
+        # (below the style cards' wrapped description text, which can run
+        # up to 3 lines).
+        self.style_help_button = Button((WIDTH // 2 - 190, 560, 180, 36), "How to Play", lambda: self._open_help("style_select"), self.font_small)
+        self.style_achievements_button = Button((WIDTH // 2 + 10, 560, 180, 36), "Achievements", lambda: self._open_achievements("style_select"), self.font_small)
+
+        # How-to-Play overlay navigation (panel is fixed at 900x560, centered).
+        self.help_close_button = Button((904, 92, 80, 28), "Close", self._close_help, self.font_small)
+        self.help_prev_button = Button((120, 596, 90, 32), "< Prev", self._help_prev, self.font_small)
+        self.help_next_button = Button((890, 596, 90, 32), "Next >", self._help_next, self.font_small)
+
+        # Achievements overlay (panel is fixed at 700x560, centered).
+        self.achievements_close_button = Button((804, 92, 80, 28), "Close", self._close_achievements, self.font_small)
 
     def _build_ground_texture(self) -> pygame.Surface:
         """Pre-baked dirt/cobblestone speckle for the market ground, drawn once
@@ -393,6 +532,45 @@ class App:
             b.enabled = enabled
 
     # ------------------------------------------------------------------
+    # Help / Achievements navigation
+    # ------------------------------------------------------------------
+
+    def _open_help(self, return_state=None):
+        self._help_return_state = return_state if return_state is not None else self.screen_state
+        self.help_page = 0
+        self.screen_state = "help"
+
+    def _close_help(self):
+        self.screen_state = self._help_return_state
+
+    def _help_prev(self):
+        self.help_page = max(0, self.help_page - 1)
+
+    def _help_next(self):
+        self.help_page = min(len(HELP_PAGES) - 1, self.help_page + 1)
+
+    def _open_achievements(self, return_state=None):
+        self._help_return_state = return_state if return_state is not None else self.screen_state
+        self.screen_state = "achievements"
+
+    def _close_achievements(self):
+        self.screen_state = self._help_return_state
+
+    @staticmethod
+    def _approach_outcome_summary(result: ApproachResult) -> tuple[str, tuple[int, int, int]]:
+        """Plain-language mechanical summary of an Approach, shown as a
+        banner on the Market screen — a playtester with no context couldn't
+        tell whether talking to someone had actually done anything."""
+        if result.outcome == ApproachOutcome.ACCEPT:
+            return f"Connection formed with {result.target.name}! ({result.points_delta:+d} pts)", (90, 200, 110)
+        if result.outcome == ApproachOutcome.STATUS_QUO:
+            return f"No connection yet — you can try again later. ({result.points_delta:+d} pts)", (210, 200, 120)
+        text = f"{result.target.name} wasn't interested this time. ({result.points_delta:+d} pts)"
+        if result.burnout_triggered:
+            text += " Burned out — Approach unavailable for a couple rounds."
+        return text, (220, 120, 120)
+
+    # ------------------------------------------------------------------
     # GameManager callbacks
     # ------------------------------------------------------------------
 
@@ -403,6 +581,10 @@ class App:
         self.points_text = f"Points: {human.points}"
         self.connections_text = f"Connections: {human.connection_count}"
         self.zone_text = get_zone_name(human.connection_count)
+
+        standings = sorted(self.game.players, key=lambda p: p.points, reverse=True)
+        rank = next(i for i, p in enumerate(standings, start=1) if p.is_human)
+        self.rank_text = f"{rank} / {len(self.game.players)}"
 
         can_act = self.game.awaiting_human
         self._set_buttons_enabled(can_act)
@@ -434,8 +616,13 @@ class App:
 
     def _on_human_action_result(self, result):
         if isinstance(result, SoloResult):
-            self.facilitator.request_solo_narration(result, self._set_home_narration)
+            delta = result.actor.points - self._points_before_action
+            prefix = f"Solo work: {delta:+d} pts. "
+            self.facilitator.request_solo_narration(
+                result, lambda text, p=prefix: self._set_home_narration(p + text)
+            )
         elif isinstance(result, ApproachResult):
+            self._last_approach_result = result
             self.market_target = result.target
             self.market_timer = 0.0
             self.screen_state = "market"
@@ -451,7 +638,11 @@ class App:
             self.market_dialogue_timer = 0.0
             self.facilitator.request_approach_narration(result, self._set_market_narration)
         elif isinstance(result, IntelligenceResult):
-            self.facilitator.request_intelligence_narration(result, self._set_home_narration)
+            delta = result.querier.points - self._points_before_action
+            prefix = f"Intelligence: {delta:+d} pts. Learned {result.target.name}'s {result.data_point_type}: {result.data_point_value}. "
+            self.facilitator.request_intelligence_narration(
+                result, lambda text, p=prefix: self._set_home_narration(p + text)
+            )
 
     def _set_home_narration(self, text: str):
         self.home_narration = text
@@ -467,6 +658,7 @@ class App:
     # ------------------------------------------------------------------
 
     def _on_solo_clicked(self):
+        self._points_before_action = self.game.human.points
         self.game.submit_solo()
         self._set_buttons_enabled(False)
 
@@ -479,6 +671,7 @@ class App:
         self.pending_action = None
 
     def _choose_target(self, target_id: int):
+        self._points_before_action = self.game.human.points
         if self.pending_action == ActionType.APPROACH:
             self.game.submit_approach(target_id)
         else:
@@ -524,12 +717,28 @@ class App:
                     if self.market_timer >= self.market_auto_return:
                         self._return_home()
 
+            # Hover tooltips on the action buttons (a playtester asked for
+            # exactly this: "an i button, hovering which could lead to
+            # explaining it") — only live on Home, with no picker/help/
+            # achievements overlay covering the buttons.
+            self.hover_tooltip = None
+            if self.screen_state == "home" and not self.target_picker_open:
+                mouse_pos = pygame.mouse.get_pos()
+                for btn, lines in self._action_tooltips.items():
+                    if btn.rect.collidepoint(mouse_pos):
+                        self.hover_tooltip = (lines, mouse_pos)
+                        break
+
             if self.screen_state == "style_select":
                 self._draw_style_select()
             elif self.screen_state == "home":
                 self._draw_home()
-            else:
+            elif self.screen_state == "market":
                 self._draw_market()
+            elif self.screen_state == "help":
+                self._draw_help()
+            elif self.screen_state == "achievements":
+                self._draw_achievements()
 
             if self.toast_timer > 0:
                 self._draw_toast()
@@ -542,11 +751,25 @@ class App:
         pygame.quit()
 
     def _handle_click(self, pos):
+        if self.screen_state == "help":
+            self.help_prev_button.handle_click(pos)
+            self.help_next_button.handle_click(pos)
+            self.help_close_button.handle_click(pos)
+            return
+
+        if self.screen_state == "achievements":
+            self.achievements_close_button.handle_click(pos)
+            return
+
         if self.game_over:
             self.play_again_button.handle_click(pos)
             return
 
         if self.screen_state == "style_select":
+            if self.style_help_button.handle_click(pos):
+                return
+            if self.style_achievements_button.handle_click(pos):
+                return
             for button, _style in self.style_buttons:
                 if button.handle_click(pos):
                     return
@@ -558,6 +781,11 @@ class App:
                 if rect.collidepoint(pos):
                     self._choose_target(player.id)
                     return
+            return
+
+        if self.menu_button.handle_click(pos):
+            return
+        if self.ingame_help_button.handle_click(pos):
             return
 
         if self.screen_state == "market":
@@ -605,6 +833,11 @@ class App:
                 text = self.font_small.render(line, True, COLOR_TEXT_DIM)
                 surface.blit(text, (button.rect.centerx - text.get_width() // 2, button.rect.bottom + 12 + i * 20))
 
+        # New here? Start with the guide — a playtester with none of this
+        # context had no idea what the game was or what any button did.
+        self.style_help_button.draw(surface)
+        self.style_achievements_button.draw(surface)
+
     def _draw_toast(self):
         text = self.font.render(self.toast_text, True, (20, 20, 20))
         padding = 16
@@ -613,6 +846,69 @@ class App:
         box.top = 16
         pygame.draw.rect(self.screen, (240, 210, 90), box, border_radius=8)
         self.screen.blit(text, (box.centerx - text.get_width() // 2, box.centery - text.get_height() // 2))
+
+    # ------------------------------------------------------------------
+    # Rendering — How to Play / Achievements overlays
+    # ------------------------------------------------------------------
+
+    def _draw_help(self):
+        surface = self.screen
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 190))
+        surface.blit(overlay, (0, 0))
+
+        panel = pygame.Rect(0, 0, 900, 560)
+        panel.center = (WIDTH // 2, HEIGHT // 2)
+        pygame.draw.rect(surface, COLOR_PANEL, panel, border_radius=10)
+
+        heading, paragraphs = HELP_PAGES[self.help_page]
+        title = self.font_big.render(f"How to Play — {heading}", True, COLOR_TEXT)
+        surface.blit(title, (panel.left + 24, panel.top + 20))
+
+        y = panel.top + 72
+        for para in paragraphs:
+            for line in wrap_text(para, self.font, panel.width - 48):
+                text = self.font.render(line, True, COLOR_TEXT)
+                surface.blit(text, (panel.left + 24, y))
+                y += 26
+            y += 12
+
+        page_label = self.font_small.render(f"Page {self.help_page + 1} / {len(HELP_PAGES)}", True, COLOR_TEXT_DIM)
+        surface.blit(page_label, (panel.centerx - page_label.get_width() // 2, panel.bottom - 40))
+
+        self.help_prev_button.enabled = self.help_page > 0
+        self.help_next_button.enabled = self.help_page < len(HELP_PAGES) - 1
+        self.help_prev_button.draw(surface)
+        self.help_next_button.draw(surface)
+        self.help_close_button.draw(surface)
+
+    def _draw_achievements(self):
+        surface = self.screen
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 190))
+        surface.blit(overlay, (0, 0))
+
+        panel = pygame.Rect(0, 0, 700, 560)
+        panel.center = (WIDTH // 2, HEIGHT // 2)
+        pygame.draw.rect(surface, COLOR_PANEL, panel, border_radius=10)
+
+        title = self.font_big.render("Achievements", True, COLOR_TEXT)
+        surface.blit(title, (panel.left + 24, panel.top + 20))
+
+        unlocked_ids = self.tracker.unlocked if self.tracker is not None else set(self.save_data.achievements)
+        y = panel.top + 72
+        for ach in ACHIEVEMENTS:
+            got = ach.id in unlocked_ids
+            marker = "[x]" if got else "[ ]"
+            color = (240, 210, 90) if got else COLOR_TEXT_DIM
+            line = f"{marker} {ach.name} — {ach.description}"
+            for wrapped in wrap_text(line, self.font_small, panel.width - 48):
+                text = self.font_small.render(wrapped, True, color)
+                surface.blit(text, (panel.left + 24, y))
+                y += 22
+            y += 8
+
+        self.achievements_close_button.draw(surface)
 
     # ------------------------------------------------------------------
     # Rendering — Home
@@ -693,16 +989,41 @@ class App:
         for b in self.action_buttons:
             b.draw(surface)
 
+        self.menu_button.draw(surface)
+        self.ingame_help_button.draw(surface)
+
         if self.target_picker_open:
             self._draw_target_picker()
+        elif self.hover_tooltip:
+            self._draw_tooltip(*self.hover_tooltip)
 
     def _draw_hud(self):
-        panel = pygame.Rect(20, 20, 300, 150)
+        panel = pygame.Rect(20, 20, 300, 180)
         pygame.draw.rect(self.screen, COLOR_PANEL, panel, border_radius=6)
-        lines = [self.round_text, self.points_text, self.connections_text, f"Zone: {self.zone_text}"]
+        lines = [
+            self.round_text, self.points_text, self.connections_text,
+            f"Zone: {self.zone_text}", f"Rank: {self.rank_text}",
+        ]
         for i, line in enumerate(lines):
             text = self.font.render(line, True, COLOR_TEXT)
             self.screen.blit(text, (panel.left + 14, panel.top + 14 + i * 32))
+
+        hint = self.font_small.render("(hover Solo / Approach / Intel for details)", True, COLOR_TEXT_DIM)
+        self.screen.blit(hint, (panel.left, panel.bottom + 6))
+
+    def _draw_tooltip(self, lines, pos):
+        padding = 8
+        line_h = 18
+        width = max(self.font_small.size(line)[0] for line in lines) + padding * 2
+        height = len(lines) * line_h + padding * 2
+        x = min(pos[0] + 16, WIDTH - width - 8)
+        y = max(pos[1] - height - 10, 8)
+        box = pygame.Rect(x, y, width, height)
+        pygame.draw.rect(self.screen, (15, 15, 20), box, border_radius=6)
+        pygame.draw.rect(self.screen, (100, 100, 112), box, 1, border_radius=6)
+        for i, line in enumerate(lines):
+            text = self.font_small.render(line, True, COLOR_TEXT)
+            self.screen.blit(text, (box.left + padding, box.top + padding + i * line_h))
 
     def _draw_narration_panel(self, text: str):
         panel = pygame.Rect(20, HEIGHT - 110, WIDTH - 40, 90)
@@ -832,6 +1153,7 @@ class App:
 
         self._draw_dialogue_box(surface)
         self.return_button.draw(surface)
+        self.menu_button.draw(surface)
 
     def _draw_tree(self, surface, pos, scale):
         x, y = pos
@@ -906,12 +1228,30 @@ class App:
         panel = pygame.Rect(20, HEIGHT - 150, WIDTH - 40, 130)
         pygame.draw.rect(surface, COLOR_PANEL, panel, border_radius=8)
 
+        y = panel.top + 10
+        if self._last_approach_result is not None:
+            # A mechanical, no-flavor summary of what actually happened —
+            # a playtester with no context couldn't tell whether talking to
+            # someone had done anything at all, or why their points moved.
+            text, color = self._approach_outcome_summary(self._last_approach_result)
+            summary_surf = self.font_small.render(text, True, color)
+            surface.blit(summary_surf, (panel.left + 14, y))
+
+            # Nothing previously told the player this screen closes itself —
+            # "a trading location appears, suddenly disappeared, why?"
+            remaining = max(0.0, self.market_auto_return - self.market_timer)
+            countdown_surf = self.font_small.render(f"auto-returns in {remaining:.0f}s", True, COLOR_TEXT_DIM)
+            surface.blit(countdown_surf, (panel.right - countdown_surf.get_width() - 14, y))
+
+            y += 22
+            pygame.draw.line(surface, (55, 55, 65), (panel.left + 14, y), (panel.right - 14, y), 1)
+            y += 8
+
         visible = self.market_dialogue[: self.market_dialogue_index + 1]
-        line_h = 24
-        max_rows = (panel.height - 20) // line_h
+        line_h = 22
+        max_rows = max(1, (panel.bottom - 10 - y) // line_h)
         shown = visible[-max_rows:]
 
-        y = panel.top + 12
         for i, (speaker, line) in enumerate(shown):
             is_latest = i == len(shown) - 1
             text_color = COLOR_TEXT if is_latest else COLOR_TEXT_DIM

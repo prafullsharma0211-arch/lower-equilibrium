@@ -228,6 +228,47 @@ never seen before, and it makes *building* connections valuable for
 information, not just points — the more people you know, the more of the
 village you can actually see.
 
+## Onboarding: fixing "I have no idea what's happening"
+
+A real, cold playtest surfaced ~29 distinct points of confusion — no
+restart button, no explanation of the goal or the three actions, jargon
+like "Eq1" and "Solo trap" with zero context, no idea why a round ended or
+why points changed, no clue the Market screen would auto-close, and no
+visible reward system beyond a single best-score number. In short: every
+piece of internal game-design language (Nash equilibria zones, prospect
+theory, weak ties) had leaked straight into the UI with nothing translating
+it for a first-time player. Fixes, all in `main.py`:
+
+- **A 4-page How-to-Play guide** (`HELP_PAGES`) — covers what the game is,
+  what the three actions actually do and why their risk differs, what
+  "Zone" and the Eq1/Eq2/Eq3 jargon mean, what the connection lines and the
+  network-visibility tiers mean, and how playstyles/achievements/getting
+  unstuck work. Forced open on the very first launch (`save_data.tutorial_seen`)
+  since a button nobody knows to click isn't discoverable, and reachable
+  any time after via **How to Play** (style-select) or **? Help**
+  (Home/Market corner).
+- **Hover tooltips on Solo/Approach/Intelligence** (`ACTION_TOOLTIPS`) —
+  exactly the "an i button, hovering which could explain it" ask. Cost/
+  benefit in 3-5 lines, no click required.
+- **A Menu button** on Home and Market, always available — there was
+  previously no way back to the main menu short of quitting the app.
+- **A Rank line in the HUD** ("Rank: 3 / 16") — computed every state change
+  from data the game already has, without exposing anyone's exact score
+  (that stays deliberately limited — see the network-visibility section
+  above — but *some* continuous feedback beats none).
+- **An explicit mechanical summary on every action** — Solo and
+  Intelligence narration is now prefixed with the literal point delta
+  ("Solo work: +58 pts. ...") before the AI's in-character flavor text, and
+  the Market screen shows a plain outcome banner ("Connection formed with
+  Bot 4! (+41 pts)" / "No connection yet..." / "Bot 7 wasn't interested...")
+  above the dialogue, plus a visible "auto-returns in Xs" countdown — the
+  screen closing itself with no explanation was one of the most confusing
+  moments reported.
+- **An Achievements screen** (style-select → **Achievements**) listing all
+  8 with locked/unlocked state — they existed before but were only ever
+  glimpsed as a toast or a bare count, never a place to actually see what
+  they were or how many were left.
+
 ## Known limitations
 
 - Visuals are flat vector shapes, not sprite art — intentional, matches the
