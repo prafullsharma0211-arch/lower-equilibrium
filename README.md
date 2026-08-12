@@ -294,6 +294,29 @@ timer with no way to linger. Fixes:
   **Return to Village**, with an explicit "Click Return to Village to
   continue" hint once the result is showing.
 
+### A villager's trade is now something you learn, not something you're told
+
+Follow-up feedback: a bot's specialty (Marketing/Creativity/Finance &
+Analytics/Operations) was visible for every villager the moment the game
+started — in the target picker, in the hover profile, and as their
+clothing color on the Home map — with no interaction required. That
+defeated the point of Intelligence as a scouting tool: there was nothing
+left to learn. Fixed with a new `App._known_players` set (`main.py`), added
+to the moment you Approach or use Intelligence on someone (regardless of
+outcome — the point is you've now met them) and persisted for the rest of
+that game:
+
+- Target-picker rows show "(unknown trade)" instead of a skill name until
+  that player is known.
+- The Home-map hover profile shows "Trade unknown — Approach or
+  Intelligence to find out" instead of their specialty and persona flavor.
+- Unknown villagers wear neutral gray on the Home map instead of their
+  skill's color — otherwise the map itself would give away for free what
+  the picker was hiding.
+- Connection-count visibility (direct/indirect/unknown, from the
+  network-visibility work above) is unaffected — this is a separate,
+  independent layer of "what you actually know about someone."
+
 ## Known limitations
 
 - Visuals are flat vector shapes, not sprite art — intentional, matches the

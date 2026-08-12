@@ -50,6 +50,7 @@ SKILL_COLORS = {
     SkillType.FINANCE_ANALYTICS: (89, 191, 102),
     SkillType.OPERATIONS: (230, 179, 51),
 }
+COLOR_UNKNOWN_SKILL = (130, 130, 130)
 
 JOB_ANIM = {
     JobType.FARMING: "farming",
@@ -364,6 +365,7 @@ class App:
         self.rank_text = "-"
         self._points_before_action = 0
         self._last_approach_result = None
+        self._known_players: set[int] = set()
         # Separate narration per screen — round-summary text (Home) must never
         # stomp on the market visit's own narration, and vice versa.
         self.home_narration = "Welcome. Choose an action once the round begins."
@@ -450,6 +452,10 @@ class App:
         self.zone_text = "-"
         self.rank_text = "-"
         self._last_approach_result = None
+        # A villager's trade is unknown until you've actually approached or
+        # scouted them — it shouldn't be free information just for existing
+        # in the picker list. Sticks for the rest of the game once learned.
+        self._known_players: set[int] = set()
         self.home_narration = (
             "Round 1 of 20. Pick Solo for a safe guaranteed payoff, Approach to "
             "risk points on a new connection, or Intelligence to scout someone "
@@ -673,6 +679,9 @@ class App:
 
     def _choose_target(self, target_id: int):
         self._points_before_action = self.game.human.points
+        # Approaching or scouting someone is what makes you actually know
+        # their trade — it sticks for the rest of the game once learned.
+        self._known_players.add(target_id)
         if self.pending_action == ActionType.APPROACH:
             self.game.submit_approach(target_id)
         else:
@@ -997,10 +1006,17 @@ class App:
                 if b:
                     pygame.draw.line(surface, COLOR_LINE, a, b, 2)
 
-        # Avatars
+        # Avatars — skill-tinted clothing only once you actually know their
+        # trade (Approached or scouted them); a neutral gray otherwise, so
+        # the map itself doesn't give away for free what the picker hides.
         for p in self.game.players:
             pos = positions[p.id]
-            color = COLOR_HUMAN if p.is_human else SKILL_COLORS.get(p.skill, (150, 150, 150))
+            if p.is_human:
+                color = COLOR_HUMAN
+            elif p.id in self._known_players:
+                color = SKILL_COLORS.get(p.skill, (150, 150, 150))
+            else:
+                color = COLOR_UNKNOWN_SKILL
             draw_person(surface, pos, color, scale=0.72)
             if p.is_human:
                 label = self.font_small.render("You", True, COLOR_TEXT)
@@ -1098,10 +1114,14 @@ class App:
         translation of what that specialty actually does."""
         if p.is_human:
             return ["You", "The entrepreneur — that's you."]
-        trade_name, trade_desc = SKILL_INFO[p.skill]
-        lines = [p.name, f"{trade_name} — {trade_desc}"]
-        if p.persona_trait:
-            lines.append(p.persona_trait.capitalize())
+        known = p.id in self._known_players
+        if known:
+            trade_name, trade_desc = SKILL_INFO[p.skill]
+            lines = [p.name, f"{trade_name} — {trade_desc}"]
+            if p.persona_trait:
+                lines.append(p.persona_trait.capitalize())
+        else:
+            lines = [p.name, "Trade unknown — Approach or Intelligence to find out."]
         tier, extra = self._network_visibility().get(p.id, (None, None))
         if tier == "direct":
             info = f"{p.connection_count} connections"
@@ -1137,7 +1157,13 @@ class App:
             if row_rect.bottom > panel.bottom - 4:
                 break
             pygame.draw.rect(self.screen, (40, 60, 100), row_rect, border_radius=4)
-            skill_label = p.skill.name.replace("_", " ").title()
+            # Trade stays unknown until you've actually approached or
+            # scouted this person — not free information just for being
+            # listed here.
+            if p.id in self._known_players:
+                skill_label = SKILL_INFO[p.skill][0]
+            else:
+                skill_label = "unknown trade"
             label = self.font_small.render(f"{p.name} ({skill_label})", True, COLOR_TEXT)
             self.screen.blit(label, (row_rect.left + 8, row_rect.top + 2))
 
