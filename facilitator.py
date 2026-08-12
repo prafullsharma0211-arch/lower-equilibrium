@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import queue
+import random
 import threading
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -146,13 +147,60 @@ def _solo_fallback(result: SoloResult) -> str:
     return f"{result.actor.name} {job_text}. (+{result.points_earned} pts)"
 
 
+_ACCEPT_EXCHANGES = [
+    "{a}: I could use a hand with something -- interested?\n{t}: Depends. What's in it for me?\n{a}: A fair split, promise.\n{t}: ...Alright, I'm in.",
+    "{a}: Ever thought about working together?\n{t}: Funny, I was about to say the same to you.\n{a}: Deal, then.",
+    "{a}: I've got an idea, and I think you're the missing piece.\n{t}: Go on.\n{a}: Trust me on this one.\n{t}: Fine -- but I'm holding you to it.",
+]
+
+_STATUS_QUO_EXCHANGES = [
+    "{a}: So -- partners?\n{t}: Let me think about it.\n{a}: That's a no for now, isn't it.\n{t}: It's a maybe. Ask me later.",
+    "{a}: Any interest in teaming up?\n{t}: Maybe. Talk to me again next week.\n{a}: Noted.",
+    "{a}: What if we combined forces on this?\n{t}: I hear you. I'm just not sold yet.\n{a}: Fair enough.",
+]
+
+_REJECT_EXCHANGES = [
+    "{a}: I had an idea for the two of us --\n{t}: Not interested.\n{a}: Right. Never mind.",
+    "{a}: Could really use your help on this.\n{t}: Find someone else.\n{a}: ...Okay.",
+    "{a}: Partners?\n{t}: Hard pass.",
+]
+
+
 def _approach_fallback(result: ApproachResult) -> str:
+    a, t = result.actor.name, result.target.name
     if result.outcome == ApproachOutcome.ACCEPT:
-        return f"{result.actor.name} heads to the market and strikes a deal with {result.target.name}. ({result.points_delta:+d} pts net)"
-    if result.outcome == ApproachOutcome.STATUS_QUO:
-        return f"{result.actor.name} finds {result.target.name} at the market, but the haggling goes nowhere."
-    suffix = " Burnout sets in." if result.burnout_triggered else ""
-    return f"{result.target.name} waves {result.actor.name} off at the market.{suffix}"
+        template = random.choice(_ACCEPT_EXCHANGES)
+    elif result.outcome == ApproachOutcome.STATUS_QUO:
+        template = random.choice(_STATUS_QUO_EXCHANGES)
+    else:
+        template = random.choice(_REJECT_EXCHANGES)
+    exchange = template.format(a=a, t=t)
+    if result.outcome == ApproachOutcome.REJECT and result.burnout_triggered:
+        exchange += f"\n{a}: ...Maybe I need to take a break from the market for a bit."
+    return exchange
+
+
+def parse_dialogue(text: str, actor_name: str, target_name: str) -> list[tuple[str, str]]:
+    """Split an approach-narration string into (speaker, line) pairs.
+
+    Accepts the "Name: line" format both the AI prompt and the local
+    fallback produce. Any line that isn't speaker-tagged (the AI ignoring
+    the format, or a one-off failure string) is kept as a single
+    Narrator-voiced line rather than dropped, so the dialogue box never
+    ends up empty.
+    """
+    known_speakers = {actor_name, target_name}
+    lines: list[tuple[str, str]] = []
+    for raw_line in text.strip().splitlines():
+        raw_line = raw_line.strip()
+        if not raw_line:
+            continue
+        speaker, sep, rest = raw_line.partition(": ")
+        if sep and speaker in known_speakers:
+            lines.append((speaker, rest.strip()))
+        else:
+            lines.append(("", raw_line))
+    return lines or [("", text.strip())]
 
 
 def _intelligence_fallback(result: IntelligenceResult) -> str:
@@ -218,7 +266,7 @@ class FacilitatorClient:
 
     def request_approach_narration(self, result: ApproachResult, callback: Callable[[str], None]) -> None:
         prompt = (
-            f"Round event: {result.actor.name} approached {result.target.name}.\n"
+            f"Round event: {result.actor.name} approached {result.target.name} at the market.\n"
             f"{_persona_line(result.target)}"
             f"Skill relationship: {result.relationship.name}\n"
             f"Outcome: {result.outcome.name}\n"
@@ -226,7 +274,12 @@ class FacilitatorClient:
             f"{result.actor.name}'s running total: {result.actor.points} pts, "
             f"{result.actor.connection_count} active connections.\n"
             + ("This player has just hit burnout after repeated rejections.\n" if result.burnout_triggered else "")
-            + f"\nNarrate this moment for {result.actor.name}."
+            + f"\nWrite this as a short spoken exchange between {result.actor.name} and {result.target.name} -- "
+            "3 to 4 lines total, each on its own line, formatted EXACTLY as \"Name: line\" with no extra "
+            "commentary before, after, or between lines. Use only their two names as speakers (no narrator "
+            "line, no stage directions). The outcome must come through in what they say, not by stating game "
+            "terms like 'accept' or 'reject'. Example shape (do not reuse this wording):\n"
+            f"{result.actor.name}: <line>\n{result.target.name}: <line>\n{result.actor.name}: <line>"
         )
         self._dispatch(prompt, _approach_fallback(result), 200, callback)
 

@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import math
 import os
+import random
 
 import pygame
 
 import save_data
 from achievements import ACHIEVEMENTS, AchievementTracker
-from facilitator import FacilitatorClient
+from facilitator import FacilitatorClient, parse_dialogue
 from game_logic import (
     ActionType,
     ApproachResult,
@@ -59,6 +60,61 @@ RISK_STYLE_INFO = {
     RiskStyle.BALANCED: ("Balanced", "The proposal's numbers, unmodified. A bit of everything."),
     RiskStyle.BOLD: ("Bold", "Same cost, bigger payoffs, lower accept chance. Bigger swings both ways."),
 }
+
+SKY_TOP = (117, 178, 222)
+SKY_HORIZON = (219, 197, 150)
+MARKET_HORIZON_Y = 230
+MARKET_GROUND_TOP = (168, 138, 92)
+MARKET_GROUND_LOW = (140, 112, 71)
+SKIN_TONE = (238, 202, 164)
+
+
+def _draw_vertical_gradient(surface, rect, top_color, bottom_color, step=3):
+    x, y, w, h = rect
+    for row in range(0, h, step):
+        t = row / max(1, h - 1)
+        color = tuple(int(top_color[i] + (bottom_color[i] - top_color[i]) * t) for i in range(3))
+        pygame.draw.rect(surface, color, (x, y + row, w, step))
+
+
+def draw_person(surface, pos, color, scale=1.0, bob=0.0, outline=(20, 20, 20), facing=0):
+    """A small flat 'paper doll' figure: head, torso, arms, legs, drop shadow.
+
+    Shared by the Home village circle (small scale, many at once) and the
+    Market screen (larger scale, idle bob animation) so every human figure
+    in the game reads the same way instead of a plain circle.
+    """
+    x, y = pos[0], pos[1] + bob
+    head_r = max(3, round(7 * scale))
+    torso_w = max(6, round(15 * scale))
+    torso_h = max(8, round(20 * scale))
+    leg_h = max(5, round(13 * scale))
+    limb_w = max(2, round(3 * scale))
+
+    torso_top = y - torso_h / 2
+    leg_y0 = y + torso_h / 2
+    leg_y1 = leg_y0 + leg_h
+    lean = 3 * scale * facing
+
+    shadow_w, shadow_h = torso_w * 1.5, max(3, round(5 * scale))
+    shadow_surf = pygame.Surface((shadow_w, shadow_h), pygame.SRCALPHA)
+    pygame.draw.ellipse(shadow_surf, (0, 0, 0, 80), shadow_surf.get_rect())
+    surface.blit(shadow_surf, (x - shadow_w / 2 + lean, leg_y1 - shadow_h / 2))
+
+    pygame.draw.line(surface, outline, (x - torso_w * 0.2, leg_y0), (x - torso_w * 0.28 + lean, leg_y1), limb_w)
+    pygame.draw.line(surface, outline, (x + torso_w * 0.2, leg_y0), (x + torso_w * 0.28 + lean, leg_y1), limb_w)
+
+    pygame.draw.line(surface, color, (x - torso_w / 2, torso_top + 3 * scale), (x - torso_w / 2 - 4 * scale, torso_top + torso_h * 0.8), limb_w)
+    pygame.draw.line(surface, color, (x + torso_w / 2, torso_top + 3 * scale), (x + torso_w / 2 + 4 * scale, torso_top + torso_h * 0.8), limb_w)
+
+    torso_rect = pygame.Rect(0, 0, torso_w, torso_h)
+    torso_rect.midtop = (x, torso_top)
+    pygame.draw.rect(surface, color, torso_rect, border_radius=max(2, round(3 * scale)))
+    pygame.draw.rect(surface, outline, torso_rect, max(1, round(1.5 * scale)), border_radius=max(2, round(3 * scale)))
+
+    head_center = (x, torso_top - head_r * 0.7)
+    pygame.draw.circle(surface, SKIN_TONE, head_center, head_r)
+    pygame.draw.circle(surface, outline, head_center, head_r, max(1, round(1 * scale)))
 
 
 def wrap_text(text: str, font: pygame.font.Font, max_width: int) -> list[str]:
@@ -126,11 +182,10 @@ class App:
         self.round_text = "Round 0 / 0"
         self.points_text = "Points: 0"
         self.connections_text = "Connections: 0"
-        self.zone_text = "Zone: -"
+        self.zone_text = "-"
         # Separate narration per screen — round-summary text (Home) must never
         # stomp on the market visit's own narration, and vice versa.
         self.home_narration = "Welcome. Choose an action once the round begins."
-        self.market_narration = ""
 
         self.screen_state = "style_select"  # "style_select" | "home" | "market"
         self.target_picker_open = False
@@ -140,6 +195,17 @@ class App:
         self.market_target = None
         self.market_timer = 0.0
         self.market_auto_return = 6.0
+        self.market_time = 0.0  # drives idle bob animation, independent of the return timer
+
+        # Dialogue exchange shown on the Market screen (see facilitator.parse_dialogue)
+        self.market_dialogue: list[tuple[str, str]] = []
+        self.market_dialogue_index = 0
+        self.market_dialogue_timer = 0.0
+        self.market_line_duration = 2.2
+        self._market_actor_name = ""
+        self._market_target_name = ""
+
+        self._market_ground_texture = self._build_ground_texture()
 
         self.game_over = False
         self.final_standings = []
@@ -187,7 +253,7 @@ class App:
         self.round_text = f"Round 0 / {self.game.total_rounds}"
         self.points_text = "Points: 0"
         self.connections_text = "Connections: 0"
-        self.zone_text = "Zone: -"
+        self.zone_text = "-"
         self.home_narration = (
             "Welcome. Choose an action once the round begins."
             if self.has_key
@@ -214,6 +280,23 @@ class App:
         self.cancel_picker_button = Button((WIDTH - 250, HEIGHT - 60, 220, 36), "Cancel", self._close_target_picker, self.font_small)
         self.return_button = Button((WIDTH // 2 - 110, HEIGHT - 170, 220, 44), "Return to Village", self._return_home, self.font)
         self.play_again_button = Button((WIDTH // 2 - 110, HEIGHT - 60, 220, 44), "Play Again", self._play_again, self.font)
+
+    def _build_ground_texture(self) -> pygame.Surface:
+        """Pre-baked dirt/cobblestone speckle for the market ground, drawn once
+        (not per-frame — hundreds of dots repainted every frame would be wasted
+        work for a texture that never changes)."""
+        height = HEIGHT - MARKET_HORIZON_Y
+        surface = pygame.Surface((WIDTH, height))
+        _draw_vertical_gradient(surface, (0, 0, WIDTH, height), MARKET_GROUND_TOP, MARKET_GROUND_LOW)
+        rng = random.Random(7)
+        for _ in range(260):
+            px = rng.randint(0, WIDTH)
+            py = rng.randint(0, height)
+            shade = rng.randint(-18, 14)
+            base = MARKET_GROUND_TOP if py < height * 0.5 else MARKET_GROUND_LOW
+            color = tuple(max(0, min(255, c + shade)) for c in base)
+            pygame.draw.circle(surface, color, (px, py), rng.choice((1, 1, 2)))
+        return surface
 
     def _play_again(self):
         self.game = None
@@ -274,10 +357,15 @@ class App:
             self.market_timer = 0.0
             self.screen_state = "market"
             self.game.set_paused(True)
-            self.market_narration = (
+            self._market_actor_name = result.actor.name
+            self._market_target_name = result.target.name if result.target else ""
+            waiting_line = (
                 f"You head to the market to find {result.target.name}..."
                 if result.target else "You head to the market..."
             )
+            self.market_dialogue = [("", waiting_line)]
+            self.market_dialogue_index = 0
+            self.market_dialogue_timer = 0.0
             self.facilitator.request_approach_narration(result, self._set_market_narration)
         elif isinstance(result, IntelligenceResult):
             self.facilitator.request_intelligence_narration(result, self._set_home_narration)
@@ -286,7 +374,10 @@ class App:
         self.home_narration = text
 
     def _set_market_narration(self, text: str):
-        self.market_narration = text
+        self.market_dialogue = parse_dialogue(text, self._market_actor_name, self._market_target_name)
+        self.market_dialogue_index = 0
+        self.market_dialogue_timer = 0.0
+        self.market_auto_return = max(6.0, 1.5 + len(self.market_dialogue) * self.market_line_duration)
 
     # ------------------------------------------------------------------
     # UI actions
@@ -341,6 +432,12 @@ class App:
 
                 if self.screen_state == "market":
                     self.market_timer += dt
+                    self.market_time += dt
+                    if self.market_dialogue_index < len(self.market_dialogue) - 1:
+                        self.market_dialogue_timer += dt
+                        if self.market_dialogue_timer >= self.market_line_duration:
+                            self.market_dialogue_timer = 0.0
+                            self.market_dialogue_index += 1
                     if self.market_timer >= self.market_auto_return:
                         self._return_home()
 
@@ -439,8 +536,8 @@ class App:
     # ------------------------------------------------------------------
 
     def _village_positions(self):
-        center = (WIDTH // 2, 350)
-        radius = 210
+        center = (WIDTH // 2, 335)
+        radius = 195
         players = self.game.players
         count = len(players)
         positions = {}
@@ -487,11 +584,10 @@ class App:
         for p in self.game.players:
             pos = positions[p.id]
             color = COLOR_HUMAN if p.is_human else SKILL_COLORS.get(p.skill, (150, 150, 150))
-            pygame.draw.circle(surface, color, pos, 14)
-            pygame.draw.circle(surface, (20, 20, 20), pos, 14, 2)
+            draw_person(surface, pos, color, scale=0.85)
             if p.is_human:
                 label = self.font_small.render("You", True, COLOR_TEXT)
-                surface.blit(label, (pos[0] - label.get_width() // 2, pos[1] - 32))
+                surface.blit(label, (pos[0] - label.get_width() // 2, pos[1] - 40))
 
         self._draw_hud()
         self._draw_narration_panel(self.home_narration)
@@ -552,50 +648,135 @@ class App:
 
     def _draw_market(self):
         surface = self.screen
-        surface.fill(COLOR_BG_MARKET)
+        _draw_vertical_gradient(surface, (0, 0, WIDTH, MARKET_HORIZON_Y), SKY_TOP, SKY_HORIZON)
+        surface.blit(self._market_ground_texture, (0, MARKET_HORIZON_Y))
 
-        stall_positions = [(WIDTH // 2 - 260, 260, (204, 51, 51)), (WIDTH // 2, 230, (217, 191, 38)), (WIDTH // 2 + 260, 260, (140, 64, 191))]
-        for x, y, awning_color in stall_positions:
-            self._draw_stall(surface, (x, y), awning_color)
+        self._draw_tree(surface, (55, MARKET_HORIZON_Y + 10), 1.0)
+        self._draw_tree(surface, (135, MARKET_HORIZON_Y + 35), 0.75)
+        self._draw_tree(surface, (WIDTH - 60, MARKET_HORIZON_Y + 5), 1.1)
+        self._draw_tree(surface, (WIDTH - 150, MARKET_HORIZON_Y + 40), 0.8)
 
-        human_pos = (WIDTH // 2 - 40, 420)
-        pygame.draw.circle(surface, COLOR_HUMAN, human_pos, 16)
-        pygame.draw.circle(surface, (20, 20, 20), human_pos, 16, 2)
-        label = self.font_small.render("You", True, COLOR_TEXT)
-        surface.blit(label, (human_pos[0] - label.get_width() // 2, human_pos[1] - 36))
+        stalls = [
+            (WIDTH // 2 - 260, 300, (204, 76, 76), "Produce"),
+            (WIDTH // 2, 270, (222, 189, 61), "Goods"),
+            (WIDTH // 2 + 260, 300, (140, 90, 191), "Crafts"),
+        ]
+        for x, y, awning_color, sign in stalls:
+            self._draw_stall(surface, (x, y), awning_color, sign)
+
+        bob = math.sin(self.market_time * 2.4) * 3
+        human_pos = (WIDTH // 2 - 55, 470)
+        draw_person(surface, human_pos, COLOR_HUMAN, scale=1.5, bob=bob, facing=1)
+        label = self.font.render("You", True, COLOR_TEXT)
+        surface.blit(label, (human_pos[0] - label.get_width() // 2, human_pos[1] - 66 + bob))
 
         if self.market_target is not None:
-            target_pos = (WIDTH // 2 + 40, 420)
+            bob2 = math.sin(self.market_time * 2.4 + math.pi * 0.6) * 3
+            target_pos = (WIDTH // 2 + 55, 470)
             color = SKILL_COLORS.get(self.market_target.skill, (150, 150, 150))
-            pygame.draw.circle(surface, color, target_pos, 16)
-            pygame.draw.circle(surface, (20, 20, 20), target_pos, 16, 2)
-            label = self.font_small.render(self.market_target.name, True, COLOR_TEXT)
-            surface.blit(label, (target_pos[0] - label.get_width() // 2, target_pos[1] - 36))
+            draw_person(surface, target_pos, color, scale=1.5, bob=bob2, facing=-1)
+            label = self.font.render(self.market_target.name, True, COLOR_TEXT)
+            surface.blit(label, (target_pos[0] - label.get_width() // 2, target_pos[1] - 66 + bob2))
 
-        self._draw_narration_panel(self.market_narration)
+        self._draw_dialogue_box(surface)
         self.return_button.draw(surface)
 
-    def _draw_stall(self, surface, pos, awning_color):
+    def _draw_tree(self, surface, pos, scale):
         x, y = pos
-        counter = pygame.Rect(0, 0, 140, 26)
-        counter.center = (x, y + 40)
-        pygame.draw.rect(surface, (110, 82, 55), counter)
+        trunk = pygame.Rect(0, 0, 10 * scale, 34 * scale)
+        trunk.midbottom = (x, y)
+        pygame.draw.rect(surface, (96, 66, 40), trunk, border_radius=2)
+        for dx, dy, r in ((0, -34, 24), (-16, -22, 18), (16, -22, 18)):
+            pygame.draw.circle(surface, (58, 110, 56), (x + dx * scale, y + dy * scale), r * scale)
 
-        awning = pygame.Rect(0, 0, 160, 18)
-        awning.center = (x, y)
-        pygame.draw.rect(surface, awning_color, awning)
+    def _draw_stall(self, surface, pos, awning_color, sign_text):
+        x, y = pos
 
-        for i, pole_x in enumerate((-65, 65)):
-            pygame.draw.line(surface, (90, 65, 40), (x + pole_x, y + 9), (x + pole_x, y + 53), 4)
+        shadow_surf = pygame.Surface((160, 16), pygame.SRCALPHA)
+        pygame.draw.ellipse(shadow_surf, (0, 0, 0, 70), shadow_surf.get_rect())
+        surface.blit(shadow_surf, (x - 80, y + 66))
 
-        fruit_colors = [(217, 51, 51), (222, 189, 26), (77, 166, 89)]
+        counter = pygame.Rect(0, 0, 150, 30)
+        counter.center = (x, y + 58)
+        pygame.draw.rect(surface, (120, 88, 58), counter, border_radius=3)
+        pygame.draw.rect(surface, (90, 64, 40), counter, 2, border_radius=3)
+
+        for pole_x in (-68, 68):
+            pygame.draw.line(surface, (90, 65, 40), (x + pole_x, y + 6), (x + pole_x, y + 58), 5)
+
+        # Scalloped awning: a solid peaked band plus alternating triangle teeth.
+        awning_w, awning_h, teeth = 168, 20, 7
+        peak = [(x - awning_w / 2, y - 4), (x + awning_w / 2, y - 4), (x, y - 26)]
+        pygame.draw.polygon(surface, awning_color, peak)
+        pygame.draw.polygon(surface, (30, 24, 18), peak, 2)
+        band = pygame.Rect(0, 0, awning_w, awning_h)
+        band.midtop = (x, y - 4)
+        pygame.draw.rect(surface, awning_color, band)
+        tooth_w = awning_w / teeth
+        tooth_color = (255, 255, 255) if awning_color != (255, 255, 255) else (230, 230, 230)
+        for i in range(teeth):
+            if i % 2:
+                continue
+            tx = band.left + i * tooth_w
+            pygame.draw.polygon(
+                surface, tooth_color,
+                [(tx, band.bottom - 2), (tx + tooth_w, band.bottom - 2), (tx + tooth_w / 2, band.bottom + 8)],
+            )
+
+        sign = pygame.Rect(0, 0, 78, 20)
+        sign.center = (x, y - 40)
+        pygame.draw.rect(surface, (245, 235, 215), sign, border_radius=3)
+        pygame.draw.rect(surface, (60, 45, 30), sign, 1, border_radius=3)
+        sign_label = self.font_small.render(sign_text, True, (40, 30, 20))
+        surface.blit(sign_label, (sign.centerx - sign_label.get_width() // 2, sign.centery - sign_label.get_height() // 2))
+
+        fruit_colors = [(217, 51, 51), (222, 189, 26), (77, 166, 89), (204, 122, 51)]
         for i in range(5):
             fx = x - 56 + i * 28
-            pygame.draw.circle(surface, fruit_colors[i % len(fruit_colors)], (fx, y + 34), 7)
+            pygame.draw.circle(surface, fruit_colors[i % len(fruit_colors)], (fx, y + 48), 7)
+            pygame.draw.circle(surface, (20, 20, 20), (fx, y + 48), 7, 1)
 
         crate = pygame.Rect(0, 0, 24, 24)
-        crate.center = (x + 90, y + 48)
+        crate.center = (x + 92, y + 62)
         pygame.draw.rect(surface, (128, 90, 51), crate)
+        pygame.draw.rect(surface, (90, 62, 34), crate, 2)
+
+        sack = pygame.Rect(0, 0, 22, 26)
+        sack.center = (x - 92, y + 60)
+        pygame.draw.ellipse(surface, (172, 148, 104), sack)
+        pygame.draw.ellipse(surface, (120, 100, 68), sack, 2)
+
+    # ------------------------------------------------------------------
+    # Rendering — dialogue box (Market)
+    # ------------------------------------------------------------------
+
+    def _draw_dialogue_box(self, surface):
+        panel = pygame.Rect(20, HEIGHT - 150, WIDTH - 40, 130)
+        pygame.draw.rect(surface, COLOR_PANEL, panel, border_radius=8)
+
+        visible = self.market_dialogue[: self.market_dialogue_index + 1]
+        line_h = 24
+        max_rows = (panel.height - 20) // line_h
+        shown = visible[-max_rows:]
+
+        y = panel.top + 12
+        for i, (speaker, line) in enumerate(shown):
+            is_latest = i == len(shown) - 1
+            text_color = COLOR_TEXT if is_latest else COLOR_TEXT_DIM
+            text_x = panel.left + 14
+            if speaker:
+                speaker_color = COLOR_HUMAN if speaker == self._market_actor_name else (230, 179, 51)
+                name_surf = self.font_small.render(f"{speaker}:", True, speaker_color if is_latest else COLOR_TEXT_DIM)
+                surface.blit(name_surf, (text_x, y))
+                text_x += name_surf.get_width() + 8
+            wrapped = wrap_text(line, self.font_small, panel.right - text_x - 14) or [line]
+            text_surf = self.font_small.render(wrapped[0], True, text_color)
+            surface.blit(text_surf, (text_x, y))
+            y += line_h
+
+        if self.market_dialogue_index < len(self.market_dialogue) - 1:
+            dots = self.font_small.render("...", True, COLOR_TEXT_DIM)
+            surface.blit(dots, (panel.right - dots.get_width() - 12, panel.bottom - 22))
 
     # ------------------------------------------------------------------
     # Rendering — end of game

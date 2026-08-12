@@ -173,11 +173,34 @@ the Market screen, either wait ~6 seconds for auto-return or click **Return
 to Village**. After the game ends, **Play Again** takes you back to the style
 select screen without restarting the app.
 
+## Graphics and market conversations
+
+Two further additions on top of the engagement-loop work, in response to
+feedback that the game needed richer visuals and a real back-and-forth when
+you approach someone, not a single narrated paragraph:
+
+- **Paper-doll figures** (`draw_person()` in `main.py`) replace the plain
+  circles everywhere a person is drawn — head, torso, arms, legs, drop
+  shadow, skill-colored clothing. Same helper on the Home village circle
+  (small scale, 16 at once) and the Market screen (larger, with a gentle
+  idle bob animation).
+- **Market screen redesign**: sky gradient, a pre-baked dirt/cobblestone
+  ground texture, flat trees framing the edges, and redesigned stalls
+  (scalloped awning, signboard, crates, a goods sack) instead of a flat
+  brown background and three plain rectangles.
+- **Dialogue exchange for Approach** (`facilitator.py`): the facilitator
+  prompt now asks for a short, speaker-tagged back-and-forth ("Name: line")
+  instead of one third-person paragraph, parsed by `parse_dialogue()` and
+  displayed as a proper chat-style dialogue box that reveals one line at a
+  time. The local (no-API-key) fallback got the same treatment — three
+  hand-written exchange variants per outcome (accept/status quo/reject), so
+  the conversation feel doesn't depend on having a key configured.
+
 ## Known limitations
 
-- Visuals are simple shapes (circles, rectangles) — intentional, matches the
-  "keep graphics limited" brief. No sprite art, no animation beyond static
-  frames.
+- Visuals are flat vector shapes, not sprite art — intentional, matches the
+  "keep graphics limited" brief, just with more detail than plain circles
+  and rectangles (see above).
 - Bots are fully silent — only your own actions get AI narration, to keep
   latency and API cost down during a playthrough.
 - Persistence is cross-*game* only (`save_data.json`), not mid-game — closing
