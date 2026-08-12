@@ -58,100 +58,66 @@ JOB_ANIM = {
 }
 
 RISK_STYLE_INFO = {
-    RiskStyle.CAUTIOUS: ("Cautious", "Cheaper approaches, smaller payoffs, higher accept chance. Safer, steadier."),
-    RiskStyle.BALANCED: ("Balanced", "The proposal's numbers, unmodified. A bit of everything."),
-    RiskStyle.BOLD: ("Bold", "Same cost, bigger payoffs, lower accept chance. Bigger swings both ways."),
+    RiskStyle.CAUTIOUS: ("Cautious", "Strength: steady, reliable growth. Weakness: even wins are smaller."),
+    RiskStyle.BALANCED: ("Balanced", "No real strength, no real weakness -- the default way to play."),
+    RiskStyle.BOLD: ("Bold", "Strength: big swings pay off big. Weakness: costly runs of bad luck."),
+}
+
+SKILL_INFO = {
+    SkillType.MARKETING: ("Marketing", "gets the word out, wins customers"),
+    SkillType.CREATIVITY: ("Creativity", "dreams up new ideas and products"),
+    SkillType.FINANCE_ANALYTICS: ("Finance & Analytics", "keeps the books, reads the numbers"),
+    SkillType.OPERATIONS: ("Operations", "keeps the day-to-day running"),
 }
 
 ACTION_TOOLTIPS = {
-    "solo": [
-        "Work your own land this round.",
-        "Always earns your Zone's payoff.",
-        "No cost, no risk.",
-    ],
-    "approach": [
-        "Try to connect with someone at the market.",
-        "You still earn your Zone payoff, but you",
-        "also pay a cost, and the outcome is a bet:",
-        "they may connect (bonus + new connection),",
-        "stay unsure (nothing changes), or say no.",
-    ],
-    "intelligence": [
-        "Pay a couple of points to learn one true",
-        "fact about someone (skill, points,",
-        "connections, or burnout). Still earns your",
-        "Zone payoff too. Cheap way to scout before",
-        "you Approach.",
-    ],
+    "solo": ["Work your own business.", "Safe, steady payoff — no risk."],
+    "approach": ["Try to team up with someone.", "Bigger reward, but it's a real ask."],
+    "intelligence": ["Scout someone before you Approach.", "Small cost, useful edge."],
 }
 
+# Short and hint-driven on purpose — a first pass at this guide spelled out
+# exact odds and payoff numbers and a playtester said it was both too much
+# text AND gave away the whole strategy. This version explains what to do
+# without solving the game for you.
 HELP_PAGES = [
-    ("What is this game?", [
-        "Lower Equilibrium is a social-network strategy game. You're one of "
-        "16 villagers (you + 15 bots), playing 20 rounds.",
-        "Goal: end Round 20 with the most points. Points come from working "
-        "your own land, and from successfully connecting with other "
-        "villagers.",
-        "Each round, everyone -- you and all 15 bots -- secretly picks ONE "
-        "action. Once everyone's chosen, the round resolves and the next "
-        "one begins.",
-        "The screen with houses around a marketplace is just the map. The "
-        "actual game happens through the three buttons at the bottom.",
+    ("Welcome", "solo", [
+        "You're an entrepreneur in a small village, trying to grow your "
+        "network over 20 rounds.",
+        "Every round, you and 15 other villagers each quietly make one "
+        "move. Then the round resolves and the next begins.",
+        "Goal: end Round 20 with the most points.",
     ]),
-    ("The three actions", [
-        "Solo -- work your own land. Always earns your current Zone's "
-        "payoff (see next page). No cost, no risk.",
-        "Approach -- go to the market and try to connect with someone. "
-        "You still earn your Solo payoff too, but you also pay an upfront "
-        "cost, and the result is uncertain: they may connect with you "
-        "(bonus points + a new connection), stay unsure (nothing changes), "
-        "or say no (no connection -- and three rejections in a row burns "
-        "you out for a couple of rounds, during which Approach is "
-        "unavailable).",
-        "Intelligence -- pay a couple of points to learn one true fact "
-        "about someone (their skill, points, connections, or burnout "
-        "status). Still earns your Zone payoff too. Cheap way to scout "
-        "before you Approach.",
-        "Same-skill people are the safest Approach (best odds, smallest "
-        "bonus). Complementary-skill people are the riskiest (worst odds, "
-        "biggest bonus if it lands). Exact odds aren't shown -- like real "
-        "relationships, it's a bet, not a guarantee. That uncertainty is "
-        "the point: the game is built on prospect theory, how people "
-        "actually decide under risk.",
+    ("Your three moves", "approach", [
+        "Solo — work your own business. Safe, steady income.",
+        "Approach — go meet someone at the market and try to team up. "
+        "Bigger reward, but it's a real ask: they might say yes, stay "
+        "unsure, or turn you down.",
+        "Intelligence — do a little homework on someone before you "
+        "Approach them. Small cost, useful edge.",
     ]),
-    ("Zones, connections, and what you can see", [
-        "Your Zone is just a name for how many active connections you "
-        "have -- more connections usually means a bigger Solo payoff.",
-        "One twist: pushing past 6 connections temporarily DIPS your "
-        "payoff before it climbs again (the 'Transition valley') -- "
-        "growth costs you before it pays off, the same loss-aversion "
-        "pattern the course covers.",
-        "Eq1 = 0 connections (lowest payoff). Eq2 (~6 connections) is a "
-        "tempting local peak. Eq3 (14-15 connections) is the best zone in "
-        "the game.",
-        "The white lines on the village map show connections between ALL "
-        "villagers -- you can see who's talking to whom, but that doesn't "
-        "mean you know them. In the Approach/Intelligence list you'll see "
-        "real numbers only for people you're directly connected to, a "
-        "fuzzy guess for friends-of-friends, and 'unknown' for strangers.",
-        "You can't see everyone's exact points during the game either -- "
-        "only the current round leader gets mentioned. Full standings are "
-        "revealed at Round 20.",
+    ("Village trades", "wheel", [
+        "Every villager has a specialty: Marketing, Creativity, "
+        "Finance & Analytics, or Operations.",
+        "Working with someone close to your own specialty is an easier "
+        "ask. Reaching further across the village is a bigger stretch — "
+        "harder to land, worth more when it works.",
     ]),
-    ("Playstyles, achievements, getting unstuck", [
-        "Before your first game you pick a playstyle -- it only affects "
-        "Approach, for the whole game: Cautious is cheaper and safer with "
-        "a smaller payoff, Bold costs the same but swings bigger both "
-        "ways, Balanced is the middle ground.",
-        "There are 8 achievements to unlock (first connection, reaching "
-        "each Zone, surviving a burnout, and more) -- check the "
-        "Achievements screen from the main menu any time.",
-        "Your best score, games played, and unlocked achievements are "
-        "saved automatically across games. That's the actual replay "
-        "value -- not any single game's result.",
-        "Stuck mid-game? There's a Menu button in the corner of the Home "
-        "and Market screens that takes you back to the main menu any "
-        "time, and a ? button that reopens this guide.",
+    ("A few honest hints", None, [
+        "Getting turned down too many times in a row wears you out — "
+        "you'll need to shake it off before trying again.",
+        "Growing your network doesn't always feel good in the moment. "
+        "Stick with it.",
+        "You only really know how someone's doing if you know them — "
+        "directly, or through a friend of yours.",
+    ]),
+    ("Getting started", None, [
+        "Pick how you operate before your first game (see the strengths "
+        "and weaknesses on the next screen) — hover any button in-game "
+        "for a quick reminder of what it does.",
+        "8 achievements to earn, and your stats carry over between games "
+        "— check Achievements from the main menu.",
+        "Lost? Menu takes you back any time; ? Help reopens this guide.",
     ]),
 ]
 
@@ -169,6 +135,42 @@ def _draw_vertical_gradient(surface, rect, top_color, bottom_color, step=3):
         t = row / max(1, h - 1)
         color = tuple(int(top_color[i] + (bottom_color[i] - top_color[i]) * t) for i in range(3))
         pygame.draw.rect(surface, color, (x, y + row, w, step))
+
+
+def draw_icon(surface, name, center, scale=1.0):
+    """Small drawn glyph (hut / handshake / magnifying glass / skill wheel)
+    standing in for the three actions in the how-to-play guide — a
+    playtester asked for icons over more paragraphs to read."""
+    x, y = center
+    if name == "solo":
+        w, h = 20 * scale, 14 * scale
+        wall = pygame.Rect(0, 0, w, h)
+        wall.center = (x, y + 4 * scale)
+        pygame.draw.rect(surface, (150, 108, 66), wall, border_radius=2)
+        roof = [(wall.left - 3 * scale, wall.top), (wall.right + 3 * scale, wall.top), (wall.centerx, wall.top - 10 * scale)]
+        pygame.draw.polygon(surface, (112, 48, 38), roof)
+    elif name == "approach":
+        r = 5 * scale
+        left, right = (x - 9 * scale, y), (x + 9 * scale, y)
+        pygame.draw.line(surface, (230, 179, 51), left, right, max(2, round(2 * scale)))
+        pygame.draw.circle(surface, (217, 76, 76), left, r)
+        pygame.draw.circle(surface, (76, 166, 230), right, r)
+    elif name == "intelligence":
+        r = 7 * scale
+        lens_center = (x - 2 * scale, y - 2 * scale)
+        pygame.draw.circle(surface, (230, 230, 230), lens_center, r, max(2, round(2 * scale)))
+        handle_start = (lens_center[0] + r * 0.7, lens_center[1] + r * 0.7)
+        handle_end = (x + 8 * scale, y + 8 * scale)
+        pygame.draw.line(surface, (230, 230, 230), handle_start, handle_end, max(2, round(3 * scale)))
+    elif name == "wheel":
+        offsets = [(0, -12), (12, 0), (0, 12), (-12, 0)]
+        colors = list(SKILL_COLORS.values())
+        points = [(x + dx * scale, y + dy * scale) for dx, dy in offsets]
+        for i in range(4):
+            pygame.draw.line(surface, (90, 90, 90), points[i], points[(i + 1) % 4], 1)
+        for pt, color in zip(points, colors):
+            pygame.draw.circle(surface, color, pt, 6 * scale)
+            pygame.draw.circle(surface, (20, 20, 20), pt, 6 * scale, 1)
 
 
 def draw_person(surface, pos, color, scale=1.0, bob=0.0, outline=(20, 20, 20), facing=0):
@@ -376,15 +378,14 @@ class App:
         self.hover_tooltip = None  # (lines, mouse_pos) while hovering an action button
 
         self.market_target = None
-        self.market_timer = 0.0
-        self.market_auto_return = 6.0
-        self.market_time = 0.0  # drives idle bob animation, independent of the return timer
+        self.market_time = 0.0  # drives idle bob animation
 
         # Dialogue exchange shown on the Market screen (see facilitator.parse_dialogue)
         self.market_dialogue: list[tuple[str, str]] = []
         self.market_dialogue_index = 0
         self.market_dialogue_timer = 0.0
         self.market_line_duration = 2.2
+        self._market_dialogue_ready = False  # False while showing the "heading to the market..." placeholder
         self._market_actor_name = ""
         self._market_target_name = ""
 
@@ -495,10 +496,10 @@ class App:
         self.style_help_button = Button((WIDTH // 2 - 190, 560, 180, 36), "How to Play", lambda: self._open_help("style_select"), self.font_small)
         self.style_achievements_button = Button((WIDTH // 2 + 10, 560, 180, 36), "Achievements", lambda: self._open_achievements("style_select"), self.font_small)
 
-        # How-to-Play overlay navigation (panel is fixed at 900x560, centered).
-        self.help_close_button = Button((904, 92, 80, 28), "Close", self._close_help, self.font_small)
-        self.help_prev_button = Button((120, 596, 90, 32), "< Prev", self._help_prev, self.font_small)
-        self.help_next_button = Button((890, 596, 90, 32), "Next >", self._help_next, self.font_small)
+        # How-to-Play overlay navigation (panel is fixed at 900x460, centered).
+        self.help_close_button = Button((904, 132, 80, 28), "Close", self._close_help, self.font_small)
+        self.help_prev_button = Button((120, 554, 90, 32), "< Prev", self._help_prev, self.font_small)
+        self.help_next_button = Button((890, 554, 90, 32), "Next >", self._help_next, self.font_small)
 
         # Achievements overlay (panel is fixed at 700x560, centered).
         self.achievements_close_button = Button((804, 92, 80, 28), "Close", self._close_achievements, self.font_small)
@@ -624,7 +625,6 @@ class App:
         elif isinstance(result, ApproachResult):
             self._last_approach_result = result
             self.market_target = result.target
-            self.market_timer = 0.0
             self.screen_state = "market"
             self.game.set_paused(True)
             self._market_actor_name = result.actor.name
@@ -636,6 +636,7 @@ class App:
             self.market_dialogue = [("", waiting_line)]
             self.market_dialogue_index = 0
             self.market_dialogue_timer = 0.0
+            self._market_dialogue_ready = False
             self.facilitator.request_approach_narration(result, self._set_market_narration)
         elif isinstance(result, IntelligenceResult):
             delta = result.querier.points - self._points_before_action
@@ -651,7 +652,7 @@ class App:
         self.market_dialogue = parse_dialogue(text, self._market_actor_name, self._market_target_name)
         self.market_dialogue_index = 0
         self.market_dialogue_timer = 0.0
-        self.market_auto_return = max(6.0, 1.5 + len(self.market_dialogue) * self.market_line_duration)
+        self._market_dialogue_ready = True
 
     # ------------------------------------------------------------------
     # UI actions
@@ -707,15 +708,17 @@ class App:
                 self.facilitator.poll()
 
                 if self.screen_state == "market":
-                    self.market_timer += dt
                     self.market_time += dt
                     if self.market_dialogue_index < len(self.market_dialogue) - 1:
                         self.market_dialogue_timer += dt
                         if self.market_dialogue_timer >= self.market_line_duration:
                             self.market_dialogue_timer = 0.0
                             self.market_dialogue_index += 1
-                    if self.market_timer >= self.market_auto_return:
-                        self._return_home()
+                    # No auto-return timer here on purpose — a playtester
+                    # was confused when the screen closed itself with no
+                    # warning. The outcome only reveals once the dialogue
+                    # has fully played out (see _draw_dialogue_box), and the
+                    # screen only closes when Return to Village is clicked.
 
             # Hover tooltips on the action buttons (a playtester asked for
             # exactly this: "an i button, hovering which could lead to
@@ -728,6 +731,16 @@ class App:
                     if btn.rect.collidepoint(mouse_pos):
                         self.hover_tooltip = (lines, mouse_pos)
                         break
+                if self.hover_tooltip is None and self.game is not None:
+                    # Hovering a villager on the map shows their profile —
+                    # "explain your profile... hover above a bot, it should
+                    # show a popup for his profile."
+                    _, positions, _ = self._village_positions()
+                    for p in self.game.players:
+                        px, py = positions[p.id]
+                        if (mouse_pos[0] - px) ** 2 + (mouse_pos[1] - py) ** 2 <= 16 * 16:
+                            self.hover_tooltip = (self._player_profile_lines(p), mouse_pos)
+                            break
 
             if self.screen_state == "style_select":
                 self._draw_style_select()
@@ -807,7 +820,7 @@ class App:
         title = self.font_big.render("Lower Equilibrium", True, COLOR_TEXT)
         surface.blit(title, (WIDTH // 2 - title.get_width() // 2, 60))
 
-        subtitle = self.font.render("Choose how you'll play:", True, COLOR_TEXT_DIM)
+        subtitle = self.font.render("You're an entrepreneur growing your network. How do you operate?", True, COLOR_TEXT_DIM)
         surface.blit(subtitle, (WIDTH // 2 - subtitle.get_width() // 2, 110))
 
         # Persistent profile — the actual progression loop: a reason to
@@ -857,21 +870,30 @@ class App:
         overlay.fill((0, 0, 0, 190))
         surface.blit(overlay, (0, 0))
 
-        panel = pygame.Rect(0, 0, 900, 560)
+        panel = pygame.Rect(0, 0, 900, 460)
         panel.center = (WIDTH // 2, HEIGHT // 2)
         pygame.draw.rect(surface, COLOR_PANEL, panel, border_radius=10)
 
-        heading, paragraphs = HELP_PAGES[self.help_page]
-        title = self.font_big.render(f"How to Play — {heading}", True, COLOR_TEXT)
+        heading, icon, lines = HELP_PAGES[self.help_page]
+        title = self.font_big.render(heading, True, COLOR_TEXT)
         surface.blit(title, (panel.left + 24, panel.top + 20))
 
-        y = panel.top + 72
-        for para in paragraphs:
+        # Icons sit below the Close button (top-right corner), not beside
+        # it, so they never fight it for space at this panel width.
+        if heading == "Your three moves":
+            for i, name in enumerate(("solo", "approach", "intelligence")):
+                icon_x = panel.right - 220 + i * 70
+                draw_icon(surface, name, (icon_x, panel.top + 60), scale=1.1)
+        elif icon:
+            draw_icon(surface, icon, (panel.right - 60, panel.top + 60), scale=1.4)
+
+        y = panel.top + 96
+        for para in lines:
             for line in wrap_text(para, self.font, panel.width - 48):
                 text = self.font.render(line, True, COLOR_TEXT)
                 surface.blit(text, (panel.left + 24, y))
                 y += 26
-            y += 12
+            y += 14
 
         page_label = self.font_small.render(f"Page {self.help_page + 1} / {len(HELP_PAGES)}", True, COLOR_TEXT_DIM)
         surface.blit(page_label, (panel.centerx - page_label.get_width() // 2, panel.bottom - 40))
@@ -1069,6 +1091,29 @@ class App:
             return "several connections"
         return "many connections"
 
+    def _player_profile_lines(self, p) -> list[str]:
+        """Hover-tooltip content for a villager on the Home screen map —
+        "doesn't explain what different bots do" feedback: skill labels
+        alone (Marketing, Ops, ...) meant nothing without a one-line
+        translation of what that specialty actually does."""
+        if p.is_human:
+            return ["You", "The entrepreneur — that's you."]
+        trade_name, trade_desc = SKILL_INFO[p.skill]
+        lines = [p.name, f"{trade_name} — {trade_desc}"]
+        if p.persona_trait:
+            lines.append(p.persona_trait.capitalize())
+        tier, extra = self._network_visibility().get(p.id, (None, None))
+        if tier == "direct":
+            info = f"{p.connection_count} connections"
+            if p.is_burned_out:
+                info += " (burned out)"
+        elif tier == "indirect":
+            info = f"~{self._connection_bucket(p.connection_count)} (via {extra})"
+        else:
+            info = "connections unknown"
+        lines.append(info)
+        return lines
+
     def _draw_target_picker(self):
         others = self.game.get_other_players()
         visibility = self._network_visibility()
@@ -1228,28 +1273,16 @@ class App:
         panel = pygame.Rect(20, HEIGHT - 150, WIDTH - 40, 130)
         pygame.draw.rect(surface, COLOR_PANEL, panel, border_radius=8)
 
+        # The result used to be shown before the conversation even played —
+        # "result comes before conversation." It now only appears once the
+        # exchange has fully revealed, like actually hearing how it went.
+        complete = self._market_dialogue_ready and self.market_dialogue_index >= len(self.market_dialogue) - 1
+        footer_h = 34 if complete else 0
+
         y = panel.top + 10
-        if self._last_approach_result is not None:
-            # A mechanical, no-flavor summary of what actually happened —
-            # a playtester with no context couldn't tell whether talking to
-            # someone had done anything at all, or why their points moved.
-            text, color = self._approach_outcome_summary(self._last_approach_result)
-            summary_surf = self.font_small.render(text, True, color)
-            surface.blit(summary_surf, (panel.left + 14, y))
-
-            # Nothing previously told the player this screen closes itself —
-            # "a trading location appears, suddenly disappeared, why?"
-            remaining = max(0.0, self.market_auto_return - self.market_timer)
-            countdown_surf = self.font_small.render(f"auto-returns in {remaining:.0f}s", True, COLOR_TEXT_DIM)
-            surface.blit(countdown_surf, (panel.right - countdown_surf.get_width() - 14, y))
-
-            y += 22
-            pygame.draw.line(surface, (55, 55, 65), (panel.left + 14, y), (panel.right - 14, y), 1)
-            y += 8
-
         visible = self.market_dialogue[: self.market_dialogue_index + 1]
         line_h = 22
-        max_rows = max(1, (panel.bottom - 10 - y) // line_h)
+        max_rows = max(1, (panel.bottom - footer_h - 10 - y) // line_h)
         shown = visible[-max_rows:]
 
         for i, (speaker, line) in enumerate(shown):
@@ -1266,7 +1299,17 @@ class App:
             surface.blit(text_surf, (text_x, y))
             y += line_h
 
-        if self.market_dialogue_index < len(self.market_dialogue) - 1:
+        if complete:
+            div_y = panel.bottom - footer_h
+            pygame.draw.line(surface, (55, 55, 65), (panel.left + 14, div_y), (panel.right - 14, div_y), 1)
+            text, color = self._approach_outcome_summary(self._last_approach_result)
+            summary_surf = self.font_small.render(text, True, color)
+            surface.blit(summary_surf, (panel.left + 14, div_y + 8))
+            # No auto-close timer — "ends automatically... end the page
+            # after click only" — so spell out that it's waiting on you.
+            hint_surf = self.font_small.render("Click Return to Village to continue", True, COLOR_TEXT_DIM)
+            surface.blit(hint_surf, (panel.right - hint_surf.get_width() - 14, div_y + 8))
+        elif self.market_dialogue_index < len(self.market_dialogue) - 1:
             dots = self.font_small.render("...", True, COLOR_TEXT_DIM)
             surface.blit(dots, (panel.right - dots.get_width() - 12, panel.bottom - 22))
 

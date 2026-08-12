@@ -239,17 +239,13 @@ piece of internal game-design language (Nash equilibria zones, prospect
 theory, weak ties) had leaked straight into the UI with nothing translating
 it for a first-time player. Fixes, all in `main.py`:
 
-- **A 4-page How-to-Play guide** (`HELP_PAGES`) — covers what the game is,
-  what the three actions actually do and why their risk differs, what
-  "Zone" and the Eq1/Eq2/Eq3 jargon mean, what the connection lines and the
-  network-visibility tiers mean, and how playstyles/achievements/getting
-  unstuck work. Forced open on the very first launch (`save_data.tutorial_seen`)
-  since a button nobody knows to click isn't discoverable, and reachable
-  any time after via **How to Play** (style-select) or **? Help**
-  (Home/Market corner).
+- **A 5-page How-to-Play guide** (`HELP_PAGES`) with a small drawn icon per
+  page — forced open on the very first launch (`save_data.tutorial_seen`)
+  since a button nobody knows to click isn't discoverable, reachable any
+  time after via **How to Play** (style-select) or **? Help** (Home/Market
+  corner).
 - **Hover tooltips on Solo/Approach/Intelligence** (`ACTION_TOOLTIPS`) —
-  exactly the "an i button, hovering which could explain it" ask. Cost/
-  benefit in 3-5 lines, no click required.
+  exactly the "an i button, hovering which could explain it" ask.
 - **A Menu button** on Home and Market, always available — there was
   previously no way back to the main menu short of quitting the app.
 - **A Rank line in the HUD** ("Rank: 3 / 16") — computed every state change
@@ -257,17 +253,46 @@ it for a first-time player. Fixes, all in `main.py`:
   (that stays deliberately limited — see the network-visibility section
   above — but *some* continuous feedback beats none).
 - **An explicit mechanical summary on every action** — Solo and
-  Intelligence narration is now prefixed with the literal point delta
-  ("Solo work: +58 pts. ...") before the AI's in-character flavor text, and
-  the Market screen shows a plain outcome banner ("Connection formed with
-  Bot 4! (+41 pts)" / "No connection yet..." / "Bot 7 wasn't interested...")
-  above the dialogue, plus a visible "auto-returns in Xs" countdown — the
-  screen closing itself with no explanation was one of the most confusing
-  moments reported.
+  Intelligence narration is prefixed with the literal point delta ("Solo
+  work: +58 pts. ...") before the AI's in-character flavor text.
 - **An Achievements screen** (style-select → **Achievements**) listing all
   8 with locked/unlocked state — they existed before but were only ever
   glimpsed as a toast or a bare count, never a place to actually see what
   they were or how many were left.
+- **A hover profile on every villager on the Home map** (`_player_profile_lines()`)
+  — name, specialty + a one-line translation of what it actually does
+  ("Marketing — gets the word out, wins customers"), persona flavor, and
+  the same network-visibility-gated connection info as the target picker.
+
+### Second pass: shorter, hint-driven, and reordered — a second playtest
+
+The guide above went through a second round of feedback: too much text,
+icons requested over more paragraphs, and — more importantly — the guide
+was spelling out exact mechanics (odds, payoff numbers, the Eq1-Eq3 zone
+table) that the game is supposed to make you *discover*. It also caught a
+real sequencing bug on the Market screen: the outcome banner appeared
+*before* the conversation played out, and the screen closed itself on a
+timer with no way to linger. Fixes:
+
+- **Guide rewritten to be hint-driven, not a spoiler.** Instead of "Same-
+  skill people have the best odds, Complementary the worst, here's the
+  exact split," it now says specialties close to your own are an easier
+  ask and reaching further is a bigger stretch — same idea, no numbers
+  given away. Burnout and the mid-game payoff dip are now a soft warning
+  ("getting turned down too many times wears you out... growing your
+  network doesn't always feel good in the moment, stick with it") instead
+  of a mechanical lookup table.
+- **Small drawn icons** (`draw_icon()`) for Solo/Approach/Intelligence and
+  a 4-dot skill wheel, replacing some of the paragraphs outright.
+- **The player is framed as an entrepreneur**, and risk styles are now
+  explicitly labeled with a strength and a weakness each, instead of a
+  bare list of numeric modifiers.
+- **Market screen reordered**: the outcome only reveals once the dialogue
+  has fully played out, not before it — the point of reading the exchange
+  was gone if the ending was already spoiled at the top. The auto-return
+  timer is gone entirely; the screen now only closes when you click
+  **Return to Village**, with an explicit "Click Return to Village to
+  continue" hint once the result is showing.
 
 ## Known limitations
 
