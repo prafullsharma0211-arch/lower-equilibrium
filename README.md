@@ -188,6 +188,10 @@ you approach someone, not a single narrated paragraph:
   ground texture, flat trees framing the edges, and redesigned stalls
   (scalloped awning, signboard, crates, a goods sack) instead of a flat
   brown background and three plain rectangles.
+- **Home screen: everyone gets their own land** (`draw_homestead()`) — each
+  of the 16 villagers on the circle around the hut now stands next to a
+  tiny tilled field and a fenced animal pen of their own, instead of only
+  the shared central Farm/Pen/Shed the human alone used to stand near.
 - **Dialogue exchange for Approach** (`facilitator.py`): the facilitator
   prompt now asks for a short, speaker-tagged back-and-forth ("Name: line")
   instead of one third-person paragraph, parsed by `parse_dialogue()` and

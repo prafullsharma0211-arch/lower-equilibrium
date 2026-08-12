@@ -117,6 +117,37 @@ def draw_person(surface, pos, color, scale=1.0, bob=0.0, outline=(20, 20, 20), f
     pygame.draw.circle(surface, outline, head_center, head_r, max(1, round(1 * scale)))
 
 
+def draw_homestead(surface, pos, angle, scale=1.0, animal_variant=0):
+    """A tiny tilled field + fenced pen with one animal, offset from a
+    player's position toward their feet — so every villager reads as
+    standing on their own little plot of land instead of empty grass, not
+    just the human at a single shared farm/pen/shed. The horizontal offset
+    follows the village-circle angle (spreads plots sideways for players on
+    the left/right of the ring); the vertical offset is always downward, so
+    the plot never floats above a player's head for the top row.
+    """
+    cx = pos[0] + math.cos(angle) * 24 * scale
+    cy = pos[1] + (22 + max(0.0, math.sin(angle)) * 10) * scale
+
+    field = pygame.Rect(0, 0, round(22 * scale), round(15 * scale))
+    field.center = (cx - 10 * scale, cy)
+    pygame.draw.rect(surface, (101, 82, 46), field, border_radius=2)
+    for i in range(3):
+        fx = field.left + 3 + i * (field.width - 6) / 2
+        pygame.draw.line(surface, (75, 60, 32), (fx, field.top + 2), (fx, field.bottom - 2), 1)
+
+    pen = pygame.Rect(0, 0, round(20 * scale), round(15 * scale))
+    pen.center = (cx + 12 * scale, cy)
+    pygame.draw.rect(surface, (156, 182, 112), pen, border_radius=2)
+    pygame.draw.rect(surface, (120, 90, 55), pen, max(1, round(scale)), border_radius=2)
+
+    animal_color = (245, 245, 245) if animal_variant % 2 == 0 else (176, 132, 88)
+    body = pygame.Rect(0, 0, round(9 * scale), round(6 * scale))
+    body.center = (pen.centerx, pen.centery + scale)
+    pygame.draw.ellipse(surface, animal_color, body)
+    pygame.draw.circle(surface, animal_color, (body.left, body.centery - scale), max(2, round(2.5 * scale)))
+
+
 def wrap_text(text: str, font: pygame.font.Font, max_width: int) -> list[str]:
     words = text.split()
     lines: list[str] = []
@@ -537,24 +568,33 @@ class App:
 
     def _village_positions(self):
         center = (WIDTH // 2, 335)
-        radius = 195
+        radius = 185
         players = self.game.players
         count = len(players)
         positions = {}
+        angles = {}
         for i, p in enumerate(players):
             angle = (i / count) * 2 * math.pi - math.pi / 2
             x = center[0] + radius * math.cos(angle)
             y = center[1] + radius * math.sin(angle)
             positions[p.id] = (x, y)
-        return center, positions
+            angles[p.id] = angle
+        return center, positions, angles
 
     def _draw_home(self):
         surface = self.screen
         surface.fill(COLOR_BG_HOME)
 
-        center, positions = self._village_positions()
+        center, positions, angles = self._village_positions()
 
-        # Hut
+        # Every villager's own little plot — a tilled field + fenced pen with
+        # one animal, offset outward (away from the shared village center) so
+        # everyone reads as standing on their own land, not empty grass.
+        # Drawn first so figures and connection lines sit on top of them.
+        for i, p in enumerate(self.game.players):
+            draw_homestead(surface, positions[p.id], angles[p.id], scale=0.62, animal_variant=i)
+
+        # Hut — the shared village meeting point at the center of the ring.
         hut_rect = pygame.Rect(0, 0, 70, 55)
         hut_rect.center = center
         pygame.draw.rect(surface, (140, 97, 56), hut_rect)
@@ -564,11 +604,6 @@ class App:
             (hut_rect.centerx, hut_rect.top - 32),
         ]
         pygame.draw.polygon(surface, (107, 46, 36), roof_points)
-
-        # Farm patch / animal pen / tool shed
-        self._draw_dressing(surface, (center[0] - 150, center[1] + 40), (60, 40, 25), "Farm")
-        self._draw_dressing(surface, (center[0] + 150, center[1] + 40), (120, 100, 70), "Pen")
-        self._draw_dressing(surface, (center[0], center[1] + 110), (95, 75, 55), "Shed")
 
         # Connection lines
         for p in self.game.players:
@@ -596,13 +631,6 @@ class App:
 
         if self.target_picker_open:
             self._draw_target_picker()
-
-    def _draw_dressing(self, surface, center, color, label):
-        rect = pygame.Rect(0, 0, 46, 32)
-        rect.center = center
-        pygame.draw.rect(surface, color, rect, border_radius=4)
-        text = self.font_small.render(label, True, COLOR_TEXT)
-        surface.blit(text, (center[0] - text.get_width() // 2, rect.bottom + 3))
 
     def _draw_hud(self):
         panel = pygame.Rect(20, 20, 300, 150)
