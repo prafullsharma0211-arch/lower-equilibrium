@@ -41,6 +41,7 @@ COLOR_TEXT = (240, 240, 240)
 COLOR_TEXT_DIM = (180, 180, 180)
 COLOR_HUMAN = (255, 255, 255)
 COLOR_LINE = (230, 230, 230)
+ROAD_COLOR = (196, 172, 122)
 
 SKILL_COLORS = {
     SkillType.MARKETING: (217, 76, 76),
@@ -117,35 +118,86 @@ def draw_person(surface, pos, color, scale=1.0, bob=0.0, outline=(20, 20, 20), f
     pygame.draw.circle(surface, outline, head_center, head_r, max(1, round(1 * scale)))
 
 
-def draw_homestead(surface, pos, angle, scale=1.0, animal_variant=0):
-    """A tiny tilled field + fenced pen with one animal, offset from a
-    player's position toward their feet — so every villager reads as
-    standing on their own little plot of land instead of empty grass, not
-    just the human at a single shared farm/pen/shed. The horizontal offset
-    follows the village-circle angle (spreads plots sideways for players on
-    the left/right of the ring); the vertical offset is always downward, so
-    the plot never floats above a player's head for the top row.
+def homestead_anchor(pos, angle, scale=1.0):
+    """Ground point a player's house/field/pen cluster sits on: offset mostly
+    tangentially along the village circle (so houses form a street around
+    the ring instead of clustering toward the center or the edges) plus a
+    small outward push. A purely radial or purely-downward offset either
+    stacks the house on top of a top-row player's head or under a
+    bottom-row player's feet — tangential placement avoids both. Shared with
+    road drawing so each curved road ends exactly at the house it leads to.
     """
-    cx = pos[0] + math.cos(angle) * 24 * scale
-    cy = pos[1] + (22 + max(0.0, math.sin(angle)) * 10) * scale
+    tangent = (-math.sin(angle), math.cos(angle))
+    radial = (math.cos(angle), math.sin(angle))
+    return (
+        pos[0] + tangent[0] * 34 * scale + radial[0] * 18 * scale,
+        pos[1] + tangent[1] * 34 * scale + radial[1] * 18 * scale,
+    )
 
-    field = pygame.Rect(0, 0, round(22 * scale), round(15 * scale))
-    field.center = (cx - 10 * scale, cy)
+
+def draw_homestead(surface, anchor, scale=1.0, animal_variant=0):
+    """A small house with a tilled field on one side and a fenced animal pen
+    on the other, base-aligned at `anchor` — every villager's own home and
+    land, sized to actually read next to their figure instead of a couple of
+    tiny accent boxes.
+    """
+    ax, ay = anchor
+
+    house_w, house_h = 22 * scale, 15 * scale
+    wall = pygame.Rect(0, 0, house_w, house_h)
+    wall.midbottom = (ax, ay)
+    pygame.draw.rect(surface, (150, 108, 66), wall, border_radius=1)
+    pygame.draw.rect(surface, (90, 60, 35), wall, max(1, round(scale)), border_radius=1)
+    roof = [
+        (wall.left - 4 * scale, wall.top),
+        (wall.right + 4 * scale, wall.top),
+        (wall.centerx, wall.top - 11 * scale),
+    ]
+    pygame.draw.polygon(surface, (112, 48, 38), roof)
+    pygame.draw.polygon(surface, (40, 22, 16), roof, max(1, round(scale)))
+    door = pygame.Rect(0, 0, round(5 * scale), round(8 * scale))
+    door.midbottom = wall.midbottom
+    pygame.draw.rect(surface, (70, 45, 28), door)
+
+    field = pygame.Rect(0, 0, round(17 * scale), round(12 * scale))
+    field.midbottom = (ax - house_w * 0.95, ay)
     pygame.draw.rect(surface, (101, 82, 46), field, border_radius=2)
     for i in range(3):
-        fx = field.left + 3 + i * (field.width - 6) / 2
-        pygame.draw.line(surface, (75, 60, 32), (fx, field.top + 2), (fx, field.bottom - 2), 1)
+        fx = field.left + 2 + i * (field.width - 4) / 2
+        pygame.draw.line(surface, (75, 60, 32), (fx, field.top + 2), (fx, field.bottom - 2), max(1, round(scale)))
 
-    pen = pygame.Rect(0, 0, round(20 * scale), round(15 * scale))
-    pen.center = (cx + 12 * scale, cy)
+    pen = pygame.Rect(0, 0, round(16 * scale), round(12 * scale))
+    pen.midbottom = (ax + house_w * 0.95, ay)
     pygame.draw.rect(surface, (156, 182, 112), pen, border_radius=2)
     pygame.draw.rect(surface, (120, 90, 55), pen, max(1, round(scale)), border_radius=2)
 
     animal_color = (245, 245, 245) if animal_variant % 2 == 0 else (176, 132, 88)
-    body = pygame.Rect(0, 0, round(9 * scale), round(6 * scale))
-    body.center = (pen.centerx, pen.centery + scale)
+    body = pygame.Rect(0, 0, round(8 * scale), round(6 * scale))
+    body.center = pen.center
     pygame.draw.ellipse(surface, animal_color, body)
-    pygame.draw.circle(surface, animal_color, (body.left, body.centery - scale), max(2, round(2.5 * scale)))
+    pygame.draw.circle(surface, animal_color, (body.left, body.centery), max(2, round(2.5 * scale)))
+
+
+def _bezier_points(p0, p1, p2, steps=14):
+    points = []
+    for i in range(steps + 1):
+        t = i / steps
+        x = (1 - t) ** 2 * p0[0] + 2 * (1 - t) * t * p1[0] + t ** 2 * p2[0]
+        y = (1 - t) ** 2 * p0[1] + 2 * (1 - t) * t * p1[1] + t ** 2 * p2[1]
+        points.append((x, y))
+    return points
+
+
+def _road_points(start, end, bulge=22):
+    """A gently curved path from `start` to `end` (quadratic bezier via a
+    perpendicular-offset control point), so village roads sweep instead of
+    running as dead-straight spokes."""
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    length = math.hypot(dx, dy) or 1.0
+    perp = (-dy / length, dx / length)
+    mid = ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
+    control = (mid[0] + perp[0] * bulge, mid[1] + perp[1] * bulge)
+    return _bezier_points(start, control, end)
 
 
 def wrap_text(text: str, font: pygame.font.Font, max_width: int) -> list[str]:
@@ -567,8 +619,8 @@ class App:
     # ------------------------------------------------------------------
 
     def _village_positions(self):
-        center = (WIDTH // 2, 335)
-        radius = 185
+        center = (WIDTH // 2, 300)
+        radius = 195
         players = self.game.players
         count = len(players)
         positions = {}
@@ -586,24 +638,36 @@ class App:
         surface.fill(COLOR_BG_HOME)
 
         center, positions, angles = self._village_positions()
+        anchors = {
+            p.id: homestead_anchor(positions[p.id], angles[p.id]) for p in self.game.players
+        }
 
-        # Every villager's own little plot — a tilled field + fenced pen with
-        # one animal, offset outward (away from the shared village center) so
-        # everyone reads as standing on their own land, not empty grass.
-        # Drawn first so figures and connection lines sit on top of them.
+        # Curved dirt roads from the central marketplace out to each
+        # villager's house, drawn first so everything else sits on top.
+        for p in self.game.players:
+            road = _road_points(center, anchors[p.id])
+            pygame.draw.lines(surface, ROAD_COLOR, False, road, 5)
+
+        # Central marketplace plaza — the village hub every road leads to,
+        # replacing the old single shared hut.
+        plaza_r = 52
+        pygame.draw.circle(surface, (196, 182, 150), center, plaza_r)
+        pygame.draw.circle(surface, (150, 136, 104), center, plaza_r, 3)
+        pygame.draw.circle(surface, (120, 120, 120), center, 12)
+        pygame.draw.circle(surface, (80, 80, 80), center, 12, 2)
+        for i, stall_color in enumerate(((204, 76, 76), (222, 189, 61), (140, 90, 191))):
+            stall_angle = -math.pi / 2 + i * (2 * math.pi / 3)
+            sx = center[0] + math.cos(stall_angle) * plaza_r * 0.65
+            sy = center[1] + math.sin(stall_angle) * plaza_r * 0.65
+            tri = [(sx - 8, sy + 5), (sx + 8, sy + 5), (sx, sy - 8)]
+            pygame.draw.polygon(surface, stall_color, tri)
+            pygame.draw.polygon(surface, (30, 24, 18), tri, 1)
+        market_label = self.font_small.render("Village Market", True, (60, 48, 34))
+        surface.blit(market_label, (center[0] - market_label.get_width() // 2, center[1] + plaza_r + 4))
+
+        # Every villager's own house, field, and animal pen.
         for i, p in enumerate(self.game.players):
-            draw_homestead(surface, positions[p.id], angles[p.id], scale=0.62, animal_variant=i)
-
-        # Hut — the shared village meeting point at the center of the ring.
-        hut_rect = pygame.Rect(0, 0, 70, 55)
-        hut_rect.center = center
-        pygame.draw.rect(surface, (140, 97, 56), hut_rect)
-        roof_points = [
-            (hut_rect.left - 8, hut_rect.top),
-            (hut_rect.right + 8, hut_rect.top),
-            (hut_rect.centerx, hut_rect.top - 32),
-        ]
-        pygame.draw.polygon(surface, (107, 46, 36), roof_points)
+            draw_homestead(surface, anchors[p.id], scale=1.0, animal_variant=i)
 
         # Connection lines
         for p in self.game.players:
@@ -619,10 +683,10 @@ class App:
         for p in self.game.players:
             pos = positions[p.id]
             color = COLOR_HUMAN if p.is_human else SKILL_COLORS.get(p.skill, (150, 150, 150))
-            draw_person(surface, pos, color, scale=0.85)
+            draw_person(surface, pos, color, scale=0.72)
             if p.is_human:
                 label = self.font_small.render("You", True, COLOR_TEXT)
-                surface.blit(label, (pos[0] - label.get_width() // 2, pos[1] - 40))
+                surface.blit(label, (pos[0] - label.get_width() // 2, pos[1] - 34))
 
         self._draw_hud()
         self._draw_narration_panel(self.home_narration)
