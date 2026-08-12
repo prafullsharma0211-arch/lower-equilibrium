@@ -32,6 +32,52 @@ rule-based heuristics — no LLM calls for them, to keep things fast and free.
 - `test_logic.py` — runs a full 20-round game with the human auto-playing
   Solo, asserts it finishes without exceptions, prints standings. Run this
   any time you touch `game_logic.py`.
+- `achievements.py` — badge definitions + `AchievementTracker`, which watches
+  the human's progress via `GameManager`'s existing callbacks (no changes to
+  core game logic needed).
+- `save_data.py` — a local JSON file persisting games played, best score,
+  and unlocked achievements across separate runs of the game.
+
+## Engagement loop: what was missing, and what was added
+
+Diagnosed against the course's own Engagement Loop Canvas (Goal → Choice →
+Action → Feedback → Consequence → Updated state → **New choice** — "why does
+the player care about another cycle?") and its scale table (action loop/
+seconds → core gameplay loop/minutes → **progression loop**/sessions-hours):
+the game had a solid action loop and core gameplay loop, but *nothing* at the
+progression-loop scale — round 20 was mechanically identical to round 1,
+and nothing carried over between separate games. Cross-checked against
+Session 3-4's "Building Blocks of Engagement Systems" (Progression /
+Achievements / Meta-Game / Cosmetics / Social / Live Ops), the game had none
+of these beyond raw points.
+
+Five additions, all screened against the Ethics deck's dark-pattern list
+(no streaks that punish a missed day, no countdowns, no manufactured
+scarcity — everything here only ever adds, never nags or decays):
+
+1. **Achievements** (`achievements.py`) — 8 milestone badges (first
+   connection, reaching each equilibrium zone, surviving burnout, a
+   Complementary-skill success, etc.), unlocked live during play with an
+   on-screen toast.
+2. **Persistent cross-game progression** (`save_data.py`) — games played,
+   best score, and achievements unlocked are saved locally and shown on the
+   style-select screen. This is the actual missing progression loop: a
+   reason to play a *second game*, not just survive to round 20 of the same
+   one.
+3. **A real strategic choice at game start** — Cautious / Balanced / Bold
+   playstyles (`RiskStyle` in `game_logic.py`), trading Approach's cost and
+   payoff for accept-chance in different directions. Verified by simulation
+   to be genuinely balanced (avg points within ~3% of each other across 300
+   trials each) rather than one dominant option — see the risk-style
+   modifiers and comment block above `resolve_approach`.
+4. **Light bot personas** — each bot gets a one-line personality trait
+   (`PlayerData.persona_trait`), woven into the facilitator's narration
+   when you interact with them. No extra LLM calls needed; it's just prompt
+   context on top of the narration you were already requesting.
+5. **A scripted mid-game event** — "Market Day" at the halfway-point round
+   (`GameManager.special_event_round`): approaches are cheaper and everyone's
+   more receptive for that one round. A single novelty beat breaking the
+   sameness of 20 otherwise-identical rounds, not a repeating mechanic.
 
 ## Balance fix: pure Solo used to win every game
 
@@ -119,10 +165,13 @@ python test_logic.py
 
 ### Controls
 
-Click **Solo**, **Approach**, or **Intelligence** on your turn. Approach/
-Intelligence open a target list on the right — click a name, or **Cancel** to
-back out. On the Market screen, either wait ~6 seconds for auto-return or
-click **Return to Village**.
+On launch, pick a playstyle (Cautious / Balanced / Bold) — this also shows
+your career stats (games played, best score, achievements). Then, on your
+turn: click **Solo**, **Approach**, or **Intelligence**. Approach/Intelligence
+open a target list on the right — click a name, or **Cancel** to back out. On
+the Market screen, either wait ~6 seconds for auto-return or click **Return
+to Village**. After the game ends, **Play Again** takes you back to the style
+select screen without restarting the app.
 
 ## Known limitations
 
@@ -131,5 +180,6 @@ click **Return to Village**.
   frames.
 - Bots are fully silent — only your own actions get AI narration, to keep
   latency and API cost down during a playthrough.
-- No save/load; closing the window ends the run.
+- Persistence is cross-*game* only (`save_data.json`), not mid-game — closing
+  the window mid-round loses that round; nothing earlier is lost.
 - Window size is fixed at 1100×720 (not resizable).

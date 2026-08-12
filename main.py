@@ -13,6 +13,8 @@ import os
 
 import pygame
 
+import save_data
+from achievements import ACHIEVEMENTS, AchievementTracker
 from facilitator import FacilitatorClient
 from game_logic import (
     ActionType,
@@ -20,6 +22,7 @@ from game_logic import (
     GameManager,
     IntelligenceResult,
     JobType,
+    RiskStyle,
     SkillType,
     SoloResult,
     get_zone_name,
@@ -49,6 +52,12 @@ JOB_ANIM = {
     JobType.FARMING: "farming",
     JobType.ANIMAL_HUSBANDRY: "tending animals",
     JobType.MAINTENANCE: "doing upkeep",
+}
+
+RISK_STYLE_INFO = {
+    RiskStyle.CAUTIOUS: ("Cautious", "Cheaper approaches, smaller payoffs, higher accept chance. Safer, steadier."),
+    RiskStyle.BALANCED: ("Balanced", "The proposal's numbers, unmodified. A bit of everything."),
+    RiskStyle.BOLD: ("Bold", "Same cost, bigger payoffs, lower accept chance. Bigger swings both ways."),
 }
 
 
@@ -102,31 +111,28 @@ class App:
         self.font_small = pygame.font.Font(None, 18)
         self.font_big = pygame.font.Font(None, 32)
 
-        has_key = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("GEMINI_API_KEY"))
-        self.facilitator = FacilitatorClient(enabled=has_key)
+        self.has_key = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("GEMINI_API_KEY"))
+        self.facilitator = FacilitatorClient(enabled=self.has_key)
 
-        self.game = GameManager(total_players=16, total_rounds=20, delay_between_rounds=1.2)
-        self.game.on_round_started.append(self._on_round_started)
-        self.game.on_human_state_changed.append(self._on_human_state_changed)
-        self.game.on_round_summary.append(self._on_round_summary)
-        self.game.on_game_ended.append(self._on_game_ended)
-        self.game.on_human_action_result.append(self._on_human_action_result)
+        # Persistent cross-game progression (save_data.py) — the actual
+        # "progression loop" the Engagement Loop deck's scale table calls
+        # for: a reason to play a second GAME, not just a second round.
+        self.save_data = save_data.load()
 
-        self.round_text = f"Round 0 / {self.game.total_rounds}"
+        self.game = None  # created in _start_game(), once a risk style is chosen
+        self.tracker = None
+        self.newly_unlocked_this_game: list = []
+
+        self.round_text = "Round 0 / 0"
         self.points_text = "Points: 0"
         self.connections_text = "Connections: 0"
         self.zone_text = "Zone: -"
         # Separate narration per screen — round-summary text (Home) must never
         # stomp on the market visit's own narration, and vice versa.
-        welcome_text = (
-            "Welcome. Choose an action once the round begins."
-            if has_key
-            else "Welcome. (No API key set — using local narration.) Choose an action once the round begins."
-        )
-        self.home_narration = welcome_text
+        self.home_narration = "Welcome. Choose an action once the round begins."
         self.market_narration = ""
 
-        self.screen_state = "home"  # "home" | "market"
+        self.screen_state = "style_select"  # "style_select" | "home" | "market"
         self.target_picker_open = False
         self.pending_action = None  # ActionType.APPROACH | ActionType.INTELLIGENCE
         self._picker_rows = []
@@ -138,11 +144,58 @@ class App:
         self.game_over = False
         self.final_standings = []
 
+        # Toast-style banners (top of screen), used for achievement unlocks
+        # and the mid-game special event — informational only, never a
+        # pressure/urgency mechanic.
+        self.toast_text = ""
+        self.toast_timer = 0.0
+
         self._build_buttons()
+        self._build_style_buttons()
 
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
+
+    def _build_style_buttons(self):
+        styles = [RiskStyle.CAUTIOUS, RiskStyle.BALANCED, RiskStyle.BOLD]
+        self.style_buttons = []
+        card_width, gap = 280, 30
+        total_width = card_width * len(styles) + gap * (len(styles) - 1)
+        start_x = WIDTH // 2 - total_width // 2
+        for i, style in enumerate(styles):
+            label, _ = RISK_STYLE_INFO[style]
+            x = start_x + i * (card_width + gap)
+            button = Button((x, 420, card_width, 50), label, lambda s=style: self._start_game(s), self.font)
+            self.style_buttons.append((button, style))
+
+    def _start_game(self, style: RiskStyle):
+        self.game = GameManager(
+            total_players=16, total_rounds=20, human_risk_style=style, delay_between_rounds=1.2,
+        )
+        self.game.on_round_started.append(self._on_round_started)
+        self.game.on_human_state_changed.append(self._on_human_state_changed)
+        self.game.on_round_summary.append(self._on_round_summary)
+        self.game.on_game_ended.append(self._on_game_ended)
+        self.game.on_human_action_result.append(self._on_human_action_result)
+        self.game.on_special_event.append(self._on_special_event)
+
+        self.tracker = AchievementTracker(self.game, already_unlocked=set(self.save_data.achievements))
+        self.tracker.on_unlocked.append(self._on_achievement_unlocked)
+        self.newly_unlocked_this_game = []
+
+        self.round_text = f"Round 0 / {self.game.total_rounds}"
+        self.points_text = "Points: 0"
+        self.connections_text = "Connections: 0"
+        self.zone_text = "Zone: -"
+        self.home_narration = (
+            "Welcome. Choose an action once the round begins."
+            if self.has_key
+            else "Welcome. (No API key set — using local narration.) Choose an action once the round begins."
+        )
+        self.game_over = False
+        self.final_standings = []
+        self.screen_state = "home"
 
     def _build_buttons(self):
         by = HEIGHT - 170
@@ -160,6 +213,14 @@ class App:
 
         self.cancel_picker_button = Button((WIDTH - 250, HEIGHT - 60, 220, 36), "Cancel", self._close_target_picker, self.font_small)
         self.return_button = Button((WIDTH // 2 - 110, HEIGHT - 170, 220, 44), "Return to Village", self._return_home, self.font)
+        self.play_again_button = Button((WIDTH // 2 - 110, HEIGHT - 60, 220, 44), "Play Again", self._play_again, self.font)
+
+    def _play_again(self):
+        self.game = None
+        self.tracker = None
+        self.game_over = False
+        self.final_standings = []
+        self.screen_state = "style_select"
 
     def _set_buttons_enabled(self, enabled: bool):
         for b in self.action_buttons:
@@ -191,6 +252,19 @@ class App:
         self.game_over = True
         self.final_standings = standings
         self._set_buttons_enabled(False)
+
+        save_data.record_game_result(self.save_data, self.game.human.points, self.tracker.unlocked)
+        save_data.save(self.save_data)
+
+    def _on_achievement_unlocked(self, achievement):
+        self.newly_unlocked_this_game.append(achievement)
+        self.toast_text = f"Achievement unlocked: {achievement.name}"
+        self.toast_timer = 4.0
+
+    def _on_special_event(self, round_num):
+        self.toast_text = "Market Day! Everyone's more open to connecting this round."
+        self.toast_timer = 5.0
+        self.home_narration = "It's Market Day — approaches are cheaper and people are more receptive today."
 
     def _on_human_action_result(self, result):
         if isinstance(result, SoloResult):
@@ -258,18 +332,27 @@ class App:
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     self._handle_click(event.pos)
 
-            self.game.update(dt)
-            self.facilitator.poll()
+            if self.toast_timer > 0:
+                self.toast_timer -= dt
 
-            if self.screen_state == "market":
-                self.market_timer += dt
-                if self.market_timer >= self.market_auto_return:
-                    self._return_home()
+            if self.game is not None:
+                self.game.update(dt)
+                self.facilitator.poll()
 
-            if self.screen_state == "home":
+                if self.screen_state == "market":
+                    self.market_timer += dt
+                    if self.market_timer >= self.market_auto_return:
+                        self._return_home()
+
+            if self.screen_state == "style_select":
+                self._draw_style_select()
+            elif self.screen_state == "home":
                 self._draw_home()
             else:
                 self._draw_market()
+
+            if self.toast_timer > 0:
+                self._draw_toast()
 
             if self.game_over:
                 self._draw_end_overlay()
@@ -280,6 +363,13 @@ class App:
 
     def _handle_click(self, pos):
         if self.game_over:
+            self.play_again_button.handle_click(pos)
+            return
+
+        if self.screen_state == "style_select":
+            for button, _style in self.style_buttons:
+                if button.handle_click(pos):
+                    return
             return
 
         if self.target_picker_open:
@@ -297,6 +387,52 @@ class App:
         for b in self.action_buttons:
             if b.handle_click(pos):
                 return
+
+    # ------------------------------------------------------------------
+    # Rendering — Style select (also shows persistent cross-game profile)
+    # ------------------------------------------------------------------
+
+    def _draw_style_select(self):
+        surface = self.screen
+        surface.fill((30, 34, 28))
+
+        title = self.font_big.render("Lower Equilibrium", True, COLOR_TEXT)
+        surface.blit(title, (WIDTH // 2 - title.get_width() // 2, 60))
+
+        subtitle = self.font.render("Choose how you'll play:", True, COLOR_TEXT_DIM)
+        surface.blit(subtitle, (WIDTH // 2 - subtitle.get_width() // 2, 110))
+
+        # Persistent profile — the actual progression loop: a reason to
+        # play a second GAME, not just a second round.
+        sd = self.save_data
+        achieved = len(sd.achievements)
+        profile_lines = [
+            f"Games played: {sd.games_played}    Best score: {sd.best_score}",
+            f"Achievements: {achieved} / {len(ACHIEVEMENTS)}",
+        ]
+        panel = pygame.Rect(0, 0, 420, 70)
+        panel.center = (WIDTH // 2, 170)
+        pygame.draw.rect(surface, COLOR_PANEL, panel, border_radius=8)
+        for i, line in enumerate(profile_lines):
+            text = self.font_small.render(line, True, COLOR_TEXT)
+            surface.blit(text, (panel.centerx - text.get_width() // 2, panel.top + 14 + i * 24))
+
+        for button, style in self.style_buttons:
+            button.draw(surface)
+            _, description = RISK_STYLE_INFO[style]
+            lines = wrap_text(description, self.font_small, button.rect.width - 20)
+            for i, line in enumerate(lines):
+                text = self.font_small.render(line, True, COLOR_TEXT_DIM)
+                surface.blit(text, (button.rect.centerx - text.get_width() // 2, button.rect.bottom + 12 + i * 20))
+
+    def _draw_toast(self):
+        text = self.font.render(self.toast_text, True, (20, 20, 20))
+        padding = 16
+        box = pygame.Rect(0, 0, text.get_width() + padding * 2, text.get_height() + padding)
+        box.centerx = WIDTH // 2
+        box.top = 16
+        pygame.draw.rect(self.screen, (240, 210, 90), box, border_radius=8)
+        self.screen.blit(text, (box.centerx - text.get_width() // 2, box.centery - text.get_height() // 2))
 
     # ------------------------------------------------------------------
     # Rendering — Home
@@ -470,22 +606,53 @@ class App:
         overlay.fill((0, 0, 0, 190))
         self.screen.blit(overlay, (0, 0))
 
-        panel = pygame.Rect(0, 0, 560, 460)
+        panel = pygame.Rect(0, 0, 640, 660)
         panel.center = (WIDTH // 2, HEIGHT // 2)
         pygame.draw.rect(self.screen, COLOR_PANEL, panel, border_radius=8)
 
         title = self.font_big.render("Game Over", True, COLOR_TEXT)
         self.screen.blit(title, (panel.left + 20, panel.top + 16))
 
+        y = panel.top + 56
         if self.final_standings:
             winner = self.final_standings[0]
             winner_text = self.font.render(f"Winner: {winner.name} with {winner.points} pts", True, (255, 215, 0))
-            self.screen.blit(winner_text, (panel.left + 20, panel.top + 56))
+            self.screen.blit(winner_text, (panel.left + 20, y))
+        y += 34
 
         for i, p in enumerate(self.final_standings):
             line = f"{i + 1}. {p.name}: {p.points} pts ({p.connection_count} connections)"
             text = self.font_small.render(line, True, COLOR_TEXT)
-            self.screen.blit(text, (panel.left + 20, panel.top + 96 + i * 22))
+            self.screen.blit(text, (panel.left + 20, y))
+            y += 19
+
+        y += 10
+        if self.newly_unlocked_this_game:
+            names = ", ".join(a.name for a in self.newly_unlocked_this_game)
+            header = self.font_small.render("Achievements unlocked this game:", True, (240, 210, 90))
+            self.screen.blit(header, (panel.left + 20, y))
+            y += 20
+            for line in wrap_text(names, self.font_small, panel.width - 40):
+                text = self.font_small.render(line, True, COLOR_TEXT)
+                self.screen.blit(text, (panel.left + 20, y))
+                y += 20
+        else:
+            text = self.font_small.render("No new achievements this game.", True, COLOR_TEXT_DIM)
+            self.screen.blit(text, (panel.left + 20, y))
+            y += 20
+
+        y += 8
+        sd = self.save_data
+        profile = self.font_small.render(
+            f"Career: {sd.games_played} games played, best score {sd.best_score}, "
+            f"{len(sd.achievements)}/{len(ACHIEVEMENTS)} achievements",
+            True, COLOR_TEXT_DIM,
+        )
+        self.screen.blit(profile, (panel.left + 20, y))
+
+        self.play_again_button.rect.centerx = panel.centerx
+        self.play_again_button.rect.bottom = panel.bottom - 20
+        self.play_again_button.draw(self.screen)
 
 
 def main():

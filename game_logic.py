@@ -138,14 +138,69 @@ def get_odds(relationship: SkillRelationship) -> OutcomeOdds:
     return _ODDS[relationship]
 
 
-def roll_outcome(relationship: SkillRelationship, rng: random.Random) -> ApproachOutcome:
-    odds = get_odds(relationship)
+def roll_outcome(
+    relationship: SkillRelationship, rng: random.Random, odds_override: Optional["OutcomeOdds"] = None
+) -> ApproachOutcome:
+    odds = odds_override if odds_override is not None else get_odds(relationship)
     roll = rng.random()
     if roll < odds.accept:
         return ApproachOutcome.ACCEPT
     if roll < odds.accept + odds.status_quo:
         return ApproachOutcome.STATUS_QUO
     return ApproachOutcome.REJECT
+
+
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, value))
+
+
+# ---------------------------------------------------------------------------
+# Risk style — a player's chosen (or, for bots, assigned) approach to
+# Approach: trades expected value for variance, not a strictly-better option.
+# Engagement-loop rationale: gives players a real strategic identity to
+# commit to (Autonomy) and something to actually get better at reading
+# (Competence), instead of everyone converging on one "correct" play.
+# ---------------------------------------------------------------------------
+
+class RiskStyle(Enum):
+    CAUTIOUS = auto()   # lower cost, lower payoff, higher accept chance — safer, smaller swings
+    BALANCED = auto()   # unmodified
+    BOLD = auto()       # same cost, higher payoff, lower accept chance — bigger swings
+
+
+@dataclass(frozen=True)
+class RiskStyleModifier:
+    cost_mult: float
+    payoff_mult: float
+    accept_delta: float  # added to base accept chance, taken from/given to reject
+
+
+_RISK_STYLE_MODIFIERS = {
+    RiskStyle.CAUTIOUS: RiskStyleModifier(cost_mult=0.6, payoff_mult=0.7, accept_delta=+0.10),
+    RiskStyle.BALANCED: RiskStyleModifier(cost_mult=1.0, payoff_mult=1.0, accept_delta=0.0),
+    RiskStyle.BOLD: RiskStyleModifier(cost_mult=1.0, payoff_mult=1.35, accept_delta=-0.10),
+}
+
+
+def get_risk_style_modifier(style: "RiskStyle") -> RiskStyleModifier:
+    return _RISK_STYLE_MODIFIERS[style]
+
+
+# Cheap, local flavor for bots — no LLM call needed just to give them an
+# identity. The facilitator (facilitator.py) weaves these into narration
+# when a bot is involved, for a lightweight Relatedness/Explorer boost.
+_PERSONA_TRAITS = [
+    "quietly ambitious",
+    "the social butterfly of the group",
+    "a careful planner who hates wasting a coin",
+    "impulsive and always chasing the next big connection",
+    "well-liked but slow to trust newcomers",
+    "keeps to themselves, but reliable when approached",
+    "the gossip of the village — knows everyone's business",
+    "stubbornly independent, prefers working alone",
+    "a natural networker, rarely turns anyone away",
+    "still smarting from a bad harvest, a bit guarded lately",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +218,8 @@ class PlayerData:
     consecutive_rejects: int = 0
     burnout_rounds_remaining: int = 0
     risk_tolerance: float = 0.5
+    risk_style: "RiskStyle" = RiskStyle.BALANCED
+    persona_trait: str = ""
 
     @property
     def connection_count(self) -> int:
@@ -219,6 +276,10 @@ BURNOUT_THRESHOLD = 3
 # an explicit, tunable interpretive choice.
 BURNOUT_DURATION_ROUNDS = 2
 
+# One-time scripted mid-game event ("Market Day") — see GameManager.special_event_round.
+EVENT_COST_MULT = 0.5
+EVENT_ACCEPT_BONUS = 0.15
+
 
 class ActionResolver:
     def __init__(self, rng: random.Random):
@@ -230,23 +291,41 @@ class ActionResolver:
         job = self._rng.choice(list(JobType))
         return SoloResult(actor=actor, points_earned=payoff, job=job)
 
-    def resolve_approach(self, actor: PlayerData, target: PlayerData) -> ApproachResult:
+    def resolve_approach(self, actor: PlayerData, target: PlayerData, event_bonus: bool = False) -> ApproachResult:
         relationship = get_relationship(actor.skill, target.skill)
-        outcome = roll_outcome(relationship, self._rng)
-        odds = get_odds(relationship)
+        base_odds = get_odds(relationship)
+        style_mod = get_risk_style_modifier(actor.risk_style)
+
+        cost = round(APPROACH_COST * style_mod.cost_mult)
+        payoff_if_accepted = round(base_odds.payoff_if_accepted * style_mod.payoff_mult)
+        accept = _clamp01(base_odds.accept + style_mod.accept_delta)
+        reject = _clamp01(base_odds.reject - (accept - base_odds.accept))
+        status_quo = max(0.0, 1.0 - accept - reject)
+
+        if event_bonus:
+            # Scripted mid-game "Market Day": everyone's more receptive and
+            # it's cheaper to try. A one-round novelty beat (Flow: unpredictability)
+            # rather than a permanent change — see GameManager.special_event_round.
+            cost = round(cost * EVENT_COST_MULT)
+            accept = _clamp01(accept + EVENT_ACCEPT_BONUS)
+            reject = _clamp01(reject - EVENT_ACCEPT_BONUS)
+            status_quo = max(0.0, 1.0 - accept - reject)
+
+        odds = OutcomeOdds(accept, status_quo, reject, payoff_if_accepted)
+        outcome = roll_outcome(relationship, self._rng, odds_override=odds)
 
         # Approach also earns this round's base payoff, same as Solo/
         # Intelligence. Without this, choosing to Approach meant forfeiting
-        # your entire baseline income for the round on top of the -5 cost
+        # your entire baseline income for the round on top of the cost
         # and the risk of failure — an opportunity cost far larger than
         # anything Approach could realistically win back, which was the
         # single biggest reason pure Solo dominated in simulation (see the
         # rebalancing notes above _BASE_PAYOFF and _ODDS).
-        points_delta = get_base_payoff(actor.connection_count) - APPROACH_COST
+        points_delta = get_base_payoff(actor.connection_count) - cost
         burnout_triggered = False
 
         if outcome == ApproachOutcome.ACCEPT:
-            points_delta += odds.payoff_if_accepted
+            points_delta += payoff_if_accepted
             actor.connection_ids.add(target.id)
             target.connection_ids.add(actor.id)
             actor.consecutive_rejects = 0
@@ -299,10 +378,6 @@ class ActionResolver:
 # ---------------------------------------------------------------------------
 # AI opponent brain — cheap rule-based heuristics, no LLM calls.
 # ---------------------------------------------------------------------------
-
-def _clamp01(value: float) -> float:
-    return max(0.0, min(1.0, value))
-
 
 class AIOpponentBrain:
     def __init__(self, rng: random.Random):
@@ -375,6 +450,7 @@ class GameManager:
         total_players: int = 16,
         total_rounds: int = 20,
         human_name: str = "You",
+        human_risk_style: "RiskStyle" = RiskStyle.BALANCED,
         delay_between_rounds: float = 1.0,
         seed: Optional[int] = None,
     ):
@@ -384,6 +460,9 @@ class GameManager:
         self.is_game_over = False
         self.paused = False
         self.awaiting_human = False
+        # One-time scripted mid-game novelty beat (Flow trigger) — see
+        # ActionResolver.resolve_approach's event_bonus handling.
+        self.special_event_round = max(1, total_rounds // 2)
 
         self._rng = random.Random(seed)
         self._resolver = ActionResolver(self._rng)
@@ -391,12 +470,22 @@ class GameManager:
         self._dt = 0.0
 
         skill_values = list(SkillType)
-        self.human = PlayerData(0, human_name, self._rng.choice(skill_values), is_human=True)
+        self.human = PlayerData(
+            0, human_name, self._rng.choice(skill_values), is_human=True, risk_style=human_risk_style,
+        )
         self.players: list = [self.human]
         for i in range(1, max(total_players, 2)):
+            risk_tolerance = self._rng.random()
+            bot_style = (
+                RiskStyle.CAUTIOUS if risk_tolerance < 0.33
+                else RiskStyle.BOLD if risk_tolerance > 0.66
+                else RiskStyle.BALANCED
+            )
             bot = PlayerData(
                 i, f"Bot {i}", self._rng.choice(skill_values), is_human=False,
-                risk_tolerance=self._rng.random(),
+                risk_tolerance=risk_tolerance,
+                risk_style=bot_style,
+                persona_trait=self._rng.choice(_PERSONA_TRAITS),
             )
             self.players.append(bot)
 
@@ -410,6 +499,7 @@ class GameManager:
         self.on_action_resolved: list[Callable] = []   # (actor, action, target, job|None)
         self.on_round_summary: list[Callable] = []      # (round, events, standings)
         self.on_game_ended: list[Callable] = []         # (standings)
+        self.on_special_event: list[Callable] = []      # (round_num) — fired once, at special_event_round
         # Fired only for the human, with the actual result object
         # (SoloResult | ApproachResult | IntelligenceResult) — enough detail
         # for the UI to request rich narration and, for Approach, switch to
@@ -476,6 +566,10 @@ class GameManager:
             for cb in self.on_round_started:
                 cb(round_num)
 
+            if round_num == self.special_event_round:
+                for cb in self.on_special_event:
+                    cb(round_num)
+
             for p in self.players:
                 self._resolver.tick_burnout(p)
 
@@ -530,7 +624,9 @@ class GameManager:
             target = self._find_player(self._human_target_id)
             if target is None:
                 return
-            result = self._resolver.resolve_approach(self.human, target)
+            result = self._resolver.resolve_approach(
+                self.human, target, event_bonus=(self.current_round == self.special_event_round)
+            )
             events.append({
                 "actor": self.human.name, "action": "Approach",
                 "summary": f"approached {target.name}: {result.outcome.name} ({result.points_delta:+d} pts)",
@@ -566,7 +662,9 @@ class GameManager:
             self._fire_action_resolved(bot, ActionType.SOLO, None, result.job)
 
         elif decision.action == ActionType.APPROACH:
-            result = self._resolver.resolve_approach(bot, decision.target)
+            result = self._resolver.resolve_approach(
+                bot, decision.target, event_bonus=(self.current_round == self.special_event_round)
+            )
             events.append({
                 "actor": bot.name, "action": "Approach",
                 "summary": f"approached {decision.target.name}: {result.outcome.name}",

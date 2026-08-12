@@ -118,6 +118,17 @@ def generate_narration(system: str, prompt: str, max_tokens: int = 200, timeout:
             ) from fallback_error
 
 
+def _persona_line(player) -> str:
+    """One line of bot flavor for the prompt, if this player has a
+    persona_trait (see game_logic.PlayerData) — cheap Relatedness/Explorer
+    texture without an extra LLM call per bot.
+    """
+    trait = getattr(player, "persona_trait", "") or ""
+    if not trait:
+        return ""
+    return f"{player.name} is known around the village as {trait}.\n"
+
+
 # ---------------------------------------------------------------------------
 # Local fallback lines — used when the facilitator is disabled or both
 # providers fail, so the game never blocks on the network.
@@ -208,6 +219,7 @@ class FacilitatorClient:
     def request_approach_narration(self, result: ApproachResult, callback: Callable[[str], None]) -> None:
         prompt = (
             f"Round event: {result.actor.name} approached {result.target.name}.\n"
+            f"{_persona_line(result.target)}"
             f"Skill relationship: {result.relationship.name}\n"
             f"Outcome: {result.outcome.name}\n"
             f"Net points from this action: {result.points_delta}\n"
@@ -221,10 +233,12 @@ class FacilitatorClient:
     def request_intelligence_narration(self, result: IntelligenceResult, callback: Callable[[str], None]) -> None:
         prompt = (
             f"{result.querier.name} spent Intelligence to learn one true data point about {result.target.name}.\n"
+            f"{_persona_line(result.target)}"
             f"Data point type: {result.data_point_type}\n"
             f"Data point value: {result.data_point_value}\n\n"
             f"Deliver this as an in-character tip from the Facilitator to {result.querier.name}, "
-            "as if leaning in with gossip. Reveal only the given data point."
+            "as if leaning in with gossip. Reveal only the given data point (the personality note, if any, is "
+            "flavor you already know about them — don't present it as the scouted secret)."
         )
         self._dispatch(prompt, _intelligence_fallback(result), 150, callback)
 
