@@ -349,6 +349,11 @@ class App:
         self.font = pygame.font.Font(None, 22)
         self.font_small = pygame.font.Font(None, 18)
         self.font_big = pygame.font.Font(None, 32)
+        # Bigger than the general UI font — story-mode narrative and lesson
+        # text is the densest reading in the game, and a playtester asked
+        # for larger text there specifically.
+        self.font_encounter = pygame.font.Font(None, 27)
+        self.font_encounter_small = pygame.font.Font(None, 21)
 
         self.has_key = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("GEMINI_API_KEY"))
         self.facilitator = FacilitatorClient(enabled=self.has_key)
@@ -381,6 +386,7 @@ class App:
         self.encounter_outcome = None
         self.encounter_quiz_correct = None
         self.encounter_lesson_page = 0
+        self.encounter_line_index = 0  # how many lines of the current phase are revealed
         self._encounter_buttons: list = []
 
         # Separate narration per screen — round-summary text (Home) must never
@@ -478,6 +484,7 @@ class App:
         self.encounter_outcome = None
         self.encounter_quiz_correct = None
         self.encounter_lesson_page = 0
+        self.encounter_line_index = 0  # how many lines of the current phase are revealed
         self.home_narration = (
             "Round 1 of 20. Pick Solo for a safe guaranteed payoff, Approach to "
             "risk points on a new connection, or Intelligence to scout someone "
@@ -731,6 +738,7 @@ class App:
         self.encounter_outcome = None
         self.encounter_quiz_correct = None
         self.encounter_lesson_page = 0
+        self.encounter_line_index = 0  # how many lines of the current phase are revealed
         self.screen_state = "encounter"
         # Paused for the same reason the Market screen pauses: the round
         # loop would otherwise silently finish (and start the next one)
@@ -744,6 +752,7 @@ class App:
         self.encounter_outcome = self.current_encounter.resolve(choice.id, self._encounter_rng)
         self.game.submit_story_encounter(self.encounter_outcome.player_payoff, self.current_encounter.id)
         self.encounter_phase = "result"
+        self.encounter_line_index = 0
 
     def _encounter_to_quiz(self):
         self.encounter_phase = "quiz"
@@ -752,12 +761,25 @@ class App:
         self.encounter_quiz_correct = index == self.current_encounter.quiz.correct_index
         self.encounter_phase = "lesson"
         self.encounter_lesson_page = 0
+        self.encounter_line_index = 0
 
     def _encounter_lesson_next(self):
         if self.encounter_lesson_page < len(self.current_encounter.lesson_pages) - 1:
             self.encounter_lesson_page += 1
+            self.encounter_line_index = 0
         else:
             self._encounter_finish()
+
+    # Reveal narrative/lesson text one line at a time instead of dumping a
+    # whole paragraph block at once — direct feedback: "make the initial
+    # game information come as 1 statement at a time not 4 line all
+    # together so people can comprehend." advance_phase() is called once
+    # every line in `lines` has been clicked through.
+    def _encounter_advance_lines(self, lines: list[str], advance_phase: Callable[[], None]):
+        if self.encounter_line_index < len(lines) - 1:
+            self.encounter_line_index += 1
+        else:
+            advance_phase()
 
     def _encounter_finish(self):
         self.current_encounter = None
@@ -1027,41 +1049,53 @@ class App:
 
     def _encounter_button(self, surface, rect, label, callback, sub_label=None):
         pygame.draw.rect(surface, COLOR_BUTTON, rect, border_radius=8)
-        text = self.font.render(label, True, COLOR_TEXT)
-        ty = rect.top + 10 if sub_label else rect.centery - text.get_height() // 2
+        text = self.font_encounter.render(label, True, COLOR_TEXT)
+        ty = rect.top + 8 if sub_label else rect.centery - text.get_height() // 2
         surface.blit(text, (rect.left + 16, ty))
         if sub_label:
-            sub = self.font_small.render(sub_label, True, (225, 232, 245))
-            surface.blit(sub, (rect.left + 16, rect.top + 34))
+            sub = self.font_encounter_small.render(sub_label, True, (225, 232, 245))
+            surface.blit(sub, (rect.left + 16, rect.top + 36))
         self._encounter_buttons.append((rect, callback))
+
+    def _draw_encounter_lines(self, surface, lines, x, y, content_w):
+        """Renders lines[0 : encounter_line_index + 1] — everything revealed
+        so far stays visible (context isn't lost), but nothing beyond the
+        current click has appeared yet. Returns the y cursor after drawing."""
+        for line in lines[: self.encounter_line_index + 1]:
+            for wline in wrap_text(line, self.font_encounter, content_w):
+                surf = self.font_encounter.render(wline, True, COLOR_TEXT)
+                surface.blit(surf, (x, y))
+                y += 32
+            y += 14
+        return y
 
     def _draw_payoff_matrix(self, surface, matrix, top_left, highlight_cell=None):
         """An actual 2x2 payoff table, not just prose describing one — a
         playtester specifically asked to see the matrix, not just be told
         about it."""
         x0, y0 = top_left
-        label_w, cell_w, header_h, cell_h = 168, 150, 28, 46
+        label_w, cell_w, header_h, cell_h = 180, 160, 30, 50
 
-        col_title = self.font_small.render(matrix.col_label, True, (230, 179, 51))
+        col_title = self.font_encounter_small.render(matrix.col_label, True, (230, 179, 51))
         col_area_w = cell_w * len(matrix.col_options)
-        surface.blit(col_title, (x0 + label_w + col_area_w // 2 - col_title.get_width() // 2, y0 - 20))
+        surface.blit(col_title, (x0 + label_w + col_area_w // 2 - col_title.get_width() // 2, y0 - 22))
 
         for j, opt in enumerate(matrix.col_options):
             rect = pygame.Rect(x0 + label_w + j * cell_w, y0, cell_w, header_h)
             pygame.draw.rect(surface, (42, 42, 54), rect)
             pygame.draw.rect(surface, (85, 85, 98), rect, 1)
-            text = self.font_small.render(opt, True, COLOR_TEXT)
+            text = self.font_encounter_small.render(opt, True, COLOR_TEXT)
             surface.blit(text, (rect.centerx - text.get_width() // 2, rect.centery - text.get_height() // 2))
 
-        row_title = self.font_small.render(matrix.row_label, True, (230, 179, 51))
+        row_title = self.font_encounter_small.render(matrix.row_label, True, (230, 179, 51))
         surface.blit(row_title, (x0, y0 + header_h + (cell_h * len(matrix.row_options)) // 2 - row_title.get_height() // 2))
 
         for i, opt in enumerate(matrix.row_options):
             row_y = y0 + header_h + i * cell_h
-            row_rect = pygame.Rect(x0 + 34, row_y, label_w - 34, cell_h)
+            row_rect = pygame.Rect(x0 + 36, row_y, label_w - 36, cell_h)
             pygame.draw.rect(surface, (42, 42, 54), row_rect)
             pygame.draw.rect(surface, (85, 85, 98), row_rect, 1)
-            text = self.font_small.render(opt, True, COLOR_TEXT)
+            text = self.font_encounter_small.render(opt, True, COLOR_TEXT)
             surface.blit(text, (row_rect.left + 6, row_rect.centery - text.get_height() // 2))
 
             for j in range(len(matrix.col_options)):
@@ -1070,7 +1104,7 @@ class App:
                 is_hl = highlight_cell == (i, j)
                 pygame.draw.rect(surface, (92, 60, 28) if is_hl else (28, 28, 36), rect)
                 pygame.draw.rect(surface, (230, 179, 51) if is_hl else (85, 85, 98), rect, 2 if is_hl else 1)
-                payoff = self.font_small.render(f"{cell.row_payoff:+d}, {cell.col_payoff:+d}", True, COLOR_TEXT)
+                payoff = self.font_encounter_small.render(f"{cell.row_payoff:+d}, {cell.col_payoff:+d}", True, COLOR_TEXT)
                 surface.blit(payoff, (rect.centerx - payoff.get_width() // 2, rect.centery - payoff.get_height() // 2))
 
         return y0 + header_h + cell_h * len(matrix.row_options)
@@ -1092,49 +1126,45 @@ class App:
         content_w = panel.width - 48
 
         if self.encounter_phase == "setup":
-            for line in enc.setup_lines:
-                for wline in wrap_text(line, self.font, content_w):
-                    surf = self.font.render(wline, True, COLOR_TEXT)
-                    surface.blit(surf, (panel.left + 24, y))
-                    y += 26
-                y += 12
-            btn = pygame.Rect(panel.right - 150, panel.bottom - 60, 126, 40)
-            self._encounter_button(surface, btn, "Continue", self._encounter_to_choice)
+            all_shown = self.encounter_line_index >= len(enc.setup_lines) - 1
+            self._draw_encounter_lines(surface, enc.setup_lines, panel.left + 24, y, content_w)
+            label = "Continue" if all_shown else "Next"
+            advance = lambda: self._encounter_advance_lines(enc.setup_lines, self._encounter_to_choice)
+            btn = pygame.Rect(panel.right - 150, panel.bottom - 60, 126, 44)
+            self._encounter_button(surface, btn, label, advance)
 
         elif self.encounter_phase == "choice":
-            prompt = self.font.render("What do you do?", True, COLOR_TEXT)
+            prompt = self.font_encounter.render("What do you do?", True, COLOR_TEXT)
             surface.blit(prompt, (panel.left + 24, y))
-            y += 44
+            y += 48
             for choice in enc.choices:
-                rect = pygame.Rect(panel.left + 24, y, content_w, 60)
+                rect = pygame.Rect(panel.left + 24, y, content_w, 68)
                 self._encounter_button(surface, rect, choice.label, lambda c=choice: self._encounter_choose(c), choice.detail)
-                y += 74
+                y += 82
 
         elif self.encounter_phase == "result":
-            for line in self.encounter_outcome.result_lines:
-                for wline in wrap_text(line, self.font, content_w):
-                    surf = self.font.render(wline, True, COLOR_TEXT)
-                    surface.blit(surf, (panel.left + 24, y))
-                    y += 26
-                y += 12
-            btn = pygame.Rect(panel.right - 220, panel.bottom - 60, 196, 40)
-            self._encounter_button(surface, btn, "What does this mean?", self._encounter_to_quiz)
+            all_shown = self.encounter_line_index >= len(self.encounter_outcome.result_lines) - 1
+            self._draw_encounter_lines(surface, self.encounter_outcome.result_lines, panel.left + 24, y, content_w)
+            label = "What does this mean?" if all_shown else "Next"
+            advance = lambda: self._encounter_advance_lines(self.encounter_outcome.result_lines, self._encounter_to_quiz)
+            btn = pygame.Rect(panel.right - 260, panel.bottom - 60, 236, 44)
+            self._encounter_button(surface, btn, label, advance)
 
         elif self.encounter_phase == "quiz":
-            for wline in wrap_text(enc.quiz.prompt, self.font, content_w):
-                surf = self.font.render(wline, True, COLOR_TEXT)
+            for wline in wrap_text(enc.quiz.prompt, self.font_encounter, content_w):
+                surf = self.font_encounter.render(wline, True, COLOR_TEXT)
                 surface.blit(surf, (panel.left + 24, y))
-                y += 26
-            y += 20
+                y += 32
+            y += 16
             for i, option in enumerate(enc.quiz.options):
-                lines = wrap_text(option, self.font_small, content_w - 20)
-                rect = pygame.Rect(panel.left + 24, y, content_w, 24 + 20 * max(1, len(lines)))
+                lines = wrap_text(option, self.font_encounter_small, content_w - 20)
+                rect = pygame.Rect(panel.left + 24, y, content_w, 26 + 24 * max(1, len(lines)))
                 pygame.draw.rect(surface, COLOR_BUTTON, rect, border_radius=6)
-                ly = rect.top + 10
+                ly = rect.top + 12
                 for line in lines:
-                    surf = self.font_small.render(line, True, COLOR_TEXT)
+                    surf = self.font_encounter_small.render(line, True, COLOR_TEXT)
                     surface.blit(surf, (rect.left + 12, ly))
-                    ly += 20
+                    ly += 24
                 self._encounter_buttons.append((rect, lambda idx=i: self._encounter_quiz_answer(idx)))
                 y = rect.bottom + 10
 
@@ -1144,33 +1174,34 @@ class App:
             if self.encounter_lesson_page == 0:
                 verdict = "Correct!" if self.encounter_quiz_correct else "Not quite — here's what actually happened:"
                 verdict_color = (140, 220, 140) if self.encounter_quiz_correct else (230, 180, 120)
-                surf = self.font.render(verdict, True, verdict_color)
+                surf = self.font_encounter.render(verdict, True, verdict_color)
                 surface.blit(surf, (panel.left + 24, y))
-                y += 32
+                y += 36
 
-            badge = self.font_small.render(f"Concept: {page.concept_name}", True, (230, 179, 51))
+            badge = self.font_encounter_small.render(f"Concept: {page.concept_name}", True, (230, 179, 51))
             surface.blit(badge, (panel.left + 24, y))
-            y += 28
+            y += 32
 
-            for line in page.lines:
-                for wline in wrap_text(line, self.font, content_w):
-                    surf = self.font.render(wline, True, COLOR_TEXT)
-                    surface.blit(surf, (panel.left + 24, y))
-                    y += 24
-                y += 8
+            all_shown = self.encounter_line_index >= len(page.lines) - 1
+            y = self._draw_encounter_lines(surface, page.lines, panel.left + 24, y, content_w)
 
-            if page.show_matrix and enc.matrix:
+            if all_shown and page.show_matrix and enc.matrix:
                 y += 8
                 self._draw_payoff_matrix(surface, enc.matrix, (panel.left + 24, y), highlight_cell=page.highlight_cell)
 
             is_last = self.encounter_lesson_page == len(enc.lesson_pages) - 1
-            label = "Continue your journey" if is_last else "Next"
-            btn = pygame.Rect(panel.right - 220, panel.bottom - 60, 196, 40)
-            self._encounter_button(surface, btn, label, self._encounter_lesson_next)
-            page_label = self.font_small.render(
+            if all_shown:
+                label = "Continue your journey" if is_last else "Next"
+                advance = self._encounter_lesson_next
+            else:
+                label = "Next"
+                advance = lambda: self._encounter_advance_lines(page.lines, self._encounter_lesson_next)
+            btn = pygame.Rect(panel.right - 260, panel.bottom - 60, 236, 44)
+            self._encounter_button(surface, btn, label, advance)
+            page_label = self.font_encounter_small.render(
                 f"{self.encounter_lesson_page + 1} / {len(enc.lesson_pages)}", True, COLOR_TEXT_DIM,
             )
-            surface.blit(page_label, (panel.left + 24, panel.bottom - 46))
+            surface.blit(page_label, (panel.left + 24, panel.bottom - 44))
 
     # ------------------------------------------------------------------
     # Rendering — Home

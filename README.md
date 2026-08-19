@@ -374,6 +374,20 @@ minimal hook into `game_logic.py`:
   to teach, not to gate the explanation behind a correct guess). The
   screen reuses the Market screen's pause pattern (`game.set_paused(True)`)
   so the round can't silently resolve while the player is still reading.
+- **One statement at a time, not a wall of text** — direct feedback: "make
+  the initial game information come as 1 statement at a time not 4 line
+  all together so people can comprehend." `_draw_encounter_lines()` reveals
+  narrative/lesson paragraphs one click at a time (cumulatively — earlier
+  lines stay visible, nothing already read disappears), tracked by
+  `encounter_line_index` and reset at every phase/page transition. The
+  button reads "Next" while there's more to reveal and only becomes the
+  real phase-advancing action ("Continue," "What does this mean?," etc.)
+  once everything for that phase is on screen — on a lesson page, the
+  payoff matrix itself only appears once its text has been fully read.
+  Body text also moved to a dedicated larger font (`font_encounter` /
+  `font_encounter_small`, 27pt/21pt vs the general UI's 22pt/18pt) — this
+  screen is the densest reading in the game and was asked for bigger text
+  specifically.
 - **Built as a framework, not a one-off**: `story_encounter_rounds` is a
   dict and `STORY_ENCOUNTERS` is a lookup table, `PayoffMatrix` and
   `LessonPage` are reusable dataclasses, specifically so more chapters
