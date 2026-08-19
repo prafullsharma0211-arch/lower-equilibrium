@@ -317,6 +317,54 @@ that game:
   network-visibility work above) is unaffected — this is a separate,
   independent layer of "what you actually know about someone."
 
+## Story mode: the game was repetitive and taught nothing
+
+Direct feedback: "the game has a story and learning that is missing...
+just by playing players learn nothing." Every round was mechanically
+identical — the same three buttons, twenty times, no throughline. Fixed by
+framing the player explicitly as an entrepreneur on a journey to build his
+business, and weaving self-contained game-theory scenarios ("chapters")
+into specific rounds of that journey — new module `story_games.py`,
+minimal hook into `game_logic.py`:
+
+- **`game_logic.py`**: `GameManager.story_encounter_rounds` maps a round
+  number to an encounter id (round 4 → `"quality_price"` by default).
+  When that round comes up, `submit_story_encounter(points_delta,
+  encounter_id)` applies the encounter's own payoff directly to the
+  player's score — deliberately *not* stacked on top of the normal
+  zone-based Solo payoff, since the encounter's outcome **is** that
+  round's result, not a bonus.
+- **`story_games.py`** (no pygame dependency, same rationale as
+  `game_logic.py` — content and payoff logic should be testable on their
+  own): each `Encounter` has a narrative setup, 2+ choices, a `resolve()`
+  function computing the payoff, a quiz question that asks the player to
+  explain what just happened, and plain-language `lesson_lines` revealing
+  the actual game-theory concept.
+- **Chapter 1 — "The Supplier at the Market"**: a one-shot simultaneous
+  quality/price game. You decide what to pay a construction-material
+  supplier before knowing whether he'll deliver good or bad material; he
+  decides simultaneously, knowing you're a one-time customer he'll never
+  see again. The payoff table (`_QUALITY_PRICE_PAYOFFS`) is a genuine
+  dominant-strategy Nash equilibrium isomorphic to the Prisoner's Dilemma:
+  Low-quality strictly dominates for the supplier regardless of what you
+  pay, Pay-Low strictly dominates for you regardless of what he delivers,
+  and yet mutual honesty (High price + High quality) would leave **both**
+  of you strictly better off than the equilibrium outcome — verified by
+  direct payoff-matrix assertions, not just eyeballed. This is the same
+  structure as Akerlof's "Market for Lemons."
+- **UI flow** (`main.py`, screen_state `"encounter"`): setup → choice →
+  result (plain mechanical outcome, no game-theory jargon yet) → quiz
+  (ask the player to explain *why*) → lesson (reveal the concept by name,
+  regardless of whether the quiz answer was right — the point is to
+  teach, not to gate the explanation behind a correct guess). The screen
+  reuses the Market screen's pause pattern (`game.set_paused(True)`) so
+  the round can't silently resolve while the player is still reading.
+- **Built as a framework, not a one-off**: `story_encounter_rounds` is a
+  dict and `STORY_ENCOUNTERS` is a lookup table specifically so more
+  chapters (subgame-perfect equilibrium via an extensive-form choice, the
+  centipede game, different auction formats) can be added later as their
+  own `Encounter` definitions without touching the round loop again.
+
 ## Known limitations
 
 - Visuals are flat vector shapes, not sprite art — intentional, matches the

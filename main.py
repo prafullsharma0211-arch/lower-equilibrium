@@ -17,6 +17,7 @@ import pygame
 import save_data
 from achievements import ACHIEVEMENTS, AchievementTracker
 from facilitator import FacilitatorClient, parse_dialogue
+from story_games import STORY_ENCOUNTERS
 from game_logic import (
     ActionType,
     ApproachOutcome,
@@ -88,6 +89,9 @@ HELP_PAGES = [
         "Every round, you and 15 other villagers each quietly make one "
         "move. Then the round resolves and the next begins.",
         "Goal: end Round 20 with the most points.",
+        "A few rounds along the way are turning points in your journey — "
+        "real business decisions that play out on their own screen, with "
+        "the reasoning explained once you've made your choice.",
     ]),
     ("Your three moves", "approach", [
         "Solo — work your own business. Safe, steady income.",
@@ -366,6 +370,18 @@ class App:
         self._points_before_action = 0
         self._last_approach_result = None
         self._known_players: set[int] = set()
+
+        # Story-mode encounters (story_games.py) — scripted game-theory
+        # scenarios woven into specific rounds of the journey. Own rng,
+        # independent of the game's seeded one, since encounter opponent
+        # behavior isn't part of what test_logic.py needs to be deterministic.
+        self._encounter_rng = random.Random()
+        self.current_encounter = None
+        self.encounter_phase = None  # "setup" | "choice" | "result" | "quiz" | "lesson"
+        self.encounter_outcome = None
+        self.encounter_quiz_correct = None
+        self._encounter_buttons: list = []
+
         # Separate narration per screen — round-summary text (Home) must never
         # stomp on the market visit's own narration, and vice versa.
         self.home_narration = "Welcome. Choose an action once the round begins."
@@ -456,6 +472,10 @@ class App:
         # scouted them — it shouldn't be free information just for existing
         # in the picker list. Sticks for the rest of the game once learned.
         self._known_players: set[int] = set()
+        self.current_encounter = None
+        self.encounter_phase = None
+        self.encounter_outcome = None
+        self.encounter_quiz_correct = None
         self.home_narration = (
             "Round 1 of 20. Pick Solo for a safe guaranteed payoff, Approach to "
             "risk points on a new connection, or Intelligence to scout someone "
@@ -594,6 +614,11 @@ class App:
         self.rank_text = f"{rank} / {len(self.game.players)}"
 
         can_act = self.game.awaiting_human
+        encounter_id = self.game.story_encounter_rounds.get(self.game.current_round) if can_act else None
+        if encounter_id and self.screen_state != "encounter":
+            self._start_encounter(encounter_id)
+            return
+
         self._set_buttons_enabled(can_act)
         if can_act:
             self.approach_button.enabled = not human.is_burned_out
@@ -695,6 +720,42 @@ class App:
         self.game.set_paused(False)
 
     # ------------------------------------------------------------------
+    # Story-mode encounter flow (story_games.py)
+    # ------------------------------------------------------------------
+
+    def _start_encounter(self, encounter_id: str):
+        self.current_encounter = STORY_ENCOUNTERS[encounter_id]
+        self.encounter_phase = "setup"
+        self.encounter_outcome = None
+        self.encounter_quiz_correct = None
+        self.screen_state = "encounter"
+        # Paused for the same reason the Market screen pauses: the round
+        # loop would otherwise silently finish (and start the next one)
+        # while the player is still reading the result/quiz/lesson.
+        self.game.set_paused(True)
+
+    def _encounter_to_choice(self):
+        self.encounter_phase = "choice"
+
+    def _encounter_choose(self, choice):
+        self.encounter_outcome = self.current_encounter.resolve(choice.id, self._encounter_rng)
+        self.game.submit_story_encounter(self.encounter_outcome.player_payoff, self.current_encounter.id)
+        self.encounter_phase = "result"
+
+    def _encounter_to_quiz(self):
+        self.encounter_phase = "quiz"
+
+    def _encounter_quiz_answer(self, index: int):
+        self.encounter_quiz_correct = index == self.current_encounter.quiz.correct_index
+        self.encounter_phase = "lesson"
+
+    def _encounter_finish(self):
+        self.current_encounter = None
+        self.encounter_phase = None
+        self.screen_state = "home"
+        self.game.set_paused(False)
+
+    # ------------------------------------------------------------------
     # Main loop
     # ------------------------------------------------------------------
 
@@ -757,6 +818,8 @@ class App:
                 self._draw_home()
             elif self.screen_state == "market":
                 self._draw_market()
+            elif self.screen_state == "encounter":
+                self._draw_encounter()
             elif self.screen_state == "help":
                 self._draw_help()
             elif self.screen_state == "achievements":
@@ -773,6 +836,13 @@ class App:
         pygame.quit()
 
     def _handle_click(self, pos):
+        if self.screen_state == "encounter":
+            for rect, callback in self._encounter_buttons:
+                if rect.collidepoint(pos):
+                    callback()
+                    return
+            return
+
         if self.screen_state == "help":
             self.help_prev_button.handle_click(pos)
             self.help_next_button.handle_click(pos)
@@ -940,6 +1010,104 @@ class App:
             y += 8
 
         self.achievements_close_button.draw(surface)
+
+    # ------------------------------------------------------------------
+    # Rendering — Story-mode encounter
+    # ------------------------------------------------------------------
+
+    def _encounter_button(self, surface, rect, label, callback, sub_label=None):
+        pygame.draw.rect(surface, COLOR_BUTTON, rect, border_radius=8)
+        text = self.font.render(label, True, COLOR_TEXT)
+        ty = rect.top + 10 if sub_label else rect.centery - text.get_height() // 2
+        surface.blit(text, (rect.left + 16, ty))
+        if sub_label:
+            sub = self.font_small.render(sub_label, True, (225, 232, 245))
+            surface.blit(sub, (rect.left + 16, rect.top + 34))
+        self._encounter_buttons.append((rect, callback))
+
+    def _draw_encounter(self):
+        surface = self.screen
+        surface.fill((46, 38, 28))
+
+        enc = self.current_encounter
+        panel = pygame.Rect(0, 0, 900, 560)
+        panel.center = (WIDTH // 2, HEIGHT // 2)
+        pygame.draw.rect(surface, COLOR_PANEL, panel, border_radius=10)
+
+        title = self.font_big.render(enc.chapter_title, True, COLOR_TEXT)
+        surface.blit(title, (panel.left + 24, panel.top + 20))
+
+        self._encounter_buttons = []
+        y = panel.top + 74
+        content_w = panel.width - 48
+
+        if self.encounter_phase == "setup":
+            for line in enc.setup_lines:
+                for wline in wrap_text(line, self.font, content_w):
+                    surf = self.font.render(wline, True, COLOR_TEXT)
+                    surface.blit(surf, (panel.left + 24, y))
+                    y += 26
+                y += 12
+            btn = pygame.Rect(panel.right - 150, panel.bottom - 60, 126, 40)
+            self._encounter_button(surface, btn, "Continue", self._encounter_to_choice)
+
+        elif self.encounter_phase == "choice":
+            prompt = self.font.render("What do you do?", True, COLOR_TEXT)
+            surface.blit(prompt, (panel.left + 24, y))
+            y += 44
+            for choice in enc.choices:
+                rect = pygame.Rect(panel.left + 24, y, content_w, 60)
+                self._encounter_button(surface, rect, choice.label, lambda c=choice: self._encounter_choose(c), choice.detail)
+                y += 74
+
+        elif self.encounter_phase == "result":
+            for line in self.encounter_outcome.result_lines:
+                for wline in wrap_text(line, self.font, content_w):
+                    surf = self.font.render(wline, True, COLOR_TEXT)
+                    surface.blit(surf, (panel.left + 24, y))
+                    y += 26
+                y += 12
+            btn = pygame.Rect(panel.right - 220, panel.bottom - 60, 196, 40)
+            self._encounter_button(surface, btn, "What does this mean?", self._encounter_to_quiz)
+
+        elif self.encounter_phase == "quiz":
+            for wline in wrap_text(enc.quiz.prompt, self.font, content_w):
+                surf = self.font.render(wline, True, COLOR_TEXT)
+                surface.blit(surf, (panel.left + 24, y))
+                y += 26
+            y += 20
+            for i, option in enumerate(enc.quiz.options):
+                lines = wrap_text(option, self.font_small, content_w - 20)
+                rect = pygame.Rect(panel.left + 24, y, content_w, 24 + 20 * max(1, len(lines)))
+                pygame.draw.rect(surface, COLOR_BUTTON, rect, border_radius=6)
+                ly = rect.top + 10
+                for line in lines:
+                    surf = self.font_small.render(line, True, COLOR_TEXT)
+                    surface.blit(surf, (rect.left + 12, ly))
+                    ly += 20
+                self._encounter_buttons.append((rect, lambda idx=i: self._encounter_quiz_answer(idx)))
+                y = rect.bottom + 10
+
+        elif self.encounter_phase == "lesson":
+            verdict = "Correct!" if self.encounter_quiz_correct else "Not quite — here's what actually happened:"
+            verdict_color = (140, 220, 140) if self.encounter_quiz_correct else (230, 180, 120)
+            surf = self.font.render(verdict, True, verdict_color)
+            surface.blit(surf, (panel.left + 24, y))
+            y += 34
+
+            badge = self.font_small.render(f"Concept: {enc.concept_name}", True, (230, 179, 51))
+            surface.blit(badge, (panel.left + 24, y))
+            y += 30
+
+            for line in enc.lesson_lines:
+                for wline in wrap_text(line, self.font, content_w):
+                    surf = self.font.render(wline, True, COLOR_TEXT)
+                    surface.blit(surf, (panel.left + 24, y))
+                    y += 26
+                y += 10
+
+            btn = pygame.Rect(panel.right - 220, panel.bottom - 60, 196, 40)
+            self._encounter_button(surface, btn, "Continue your journey", self._encounter_finish)
 
     # ------------------------------------------------------------------
     # Rendering — Home

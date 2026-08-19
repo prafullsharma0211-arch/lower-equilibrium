@@ -54,6 +54,10 @@ class ActionType(Enum):
     SOLO = auto()
     APPROACH = auto()
     INTELLIGENCE = auto()
+    # A scripted story-mode round (see story_games.py) — the payoff comes
+    # from that encounter's own resolution, not from the zone-based Solo
+    # formula, so it's resolved separately from the other three actions.
+    STORY_ENCOUNTER = auto()
 
 
 class ApproachOutcome(Enum):
@@ -265,6 +269,13 @@ class BotDecision:
     target: Optional[PlayerData] = None
 
 
+@dataclass
+class StoryEncounterResult:
+    actor: PlayerData
+    encounter_id: str
+    points_delta: int
+
+
 # ---------------------------------------------------------------------------
 # Action resolution
 # ---------------------------------------------------------------------------
@@ -453,6 +464,7 @@ class GameManager:
         human_risk_style: "RiskStyle" = RiskStyle.BALANCED,
         delay_between_rounds: float = 1.0,
         seed: Optional[int] = None,
+        story_encounter_rounds: Optional[dict] = None,
     ):
         self.total_rounds = total_rounds
         self.delay_between_rounds = delay_between_rounds
@@ -463,6 +475,14 @@ class GameManager:
         # One-time scripted mid-game novelty beat (Flow trigger) — see
         # ActionResolver.resolve_approach's event_bonus handling.
         self.special_event_round = max(1, total_rounds // 2)
+        # round_num -> encounter id (see story_games.py). Replaces that
+        # round's normal action entirely with a scripted game-theory
+        # scenario — this is "his journey," not a simulated village day.
+        self.story_encounter_rounds: dict = story_encounter_rounds or {
+            min(4, total_rounds): "quality_price",
+        }
+        self._pending_encounter_id: str = ""
+        self._pending_encounter_points: int = 0
 
         self._rng = random.Random(seed)
         self._resolver = ActionResolver(self._rng)
@@ -530,6 +550,15 @@ class GameManager:
             return
         self._human_action = ActionType.INTELLIGENCE
         self._human_target_id = target_id
+        self._human_action_submitted = True
+
+    def submit_story_encounter(self, points_delta: int, encounter_id: str) -> None:
+        if not self.awaiting_human:
+            return
+        self._human_action = ActionType.STORY_ENCOUNTER
+        self._human_target_id = -1
+        self._pending_encounter_id = encounter_id
+        self._pending_encounter_points = points_delta
         self._human_action_submitted = True
 
     def set_paused(self, paused: bool) -> None:
@@ -647,6 +676,21 @@ class GameManager:
                 "result": result,
             })
             self._fire_action_resolved(self.human, ActionType.INTELLIGENCE, target, None)
+            for cb in self.on_human_action_result:
+                cb(result)
+
+        elif action == ActionType.STORY_ENCOUNTER:
+            self.human.points += self._pending_encounter_points
+            result = StoryEncounterResult(
+                actor=self.human, encounter_id=self._pending_encounter_id,
+                points_delta=self._pending_encounter_points,
+            )
+            events.append({
+                "actor": self.human.name, "action": "Story",
+                "summary": f"{self._pending_encounter_id}: {self._pending_encounter_points:+d} pts",
+                "result": result,
+            })
+            self._fire_action_resolved(self.human, ActionType.STORY_ENCOUNTER, None, None)
             for cb in self.on_human_action_result:
                 cb(result)
 
