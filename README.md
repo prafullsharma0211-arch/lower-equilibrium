@@ -395,6 +395,65 @@ minimal hook into `game_logic.py`:
   centipede game, different auction formats) can be added later as their
   own `Encounter` definitions without touching the round loop again.
 
+## Chapter 2 — The Road Fund: generalizing to N players
+
+Chapter 1 taught a 2-player dominant-strategy game. The natural next step,
+and a good test of whether the framework above actually generalizes, was
+an N-player version: a public-goods game with a matching-grant twist,
+landing at round 8.
+
+**The setup**: the player and 4 other shopkeepers can each contribute Rs
+100 toward repairing the market road. A traveling merchant offers to match
+whatever the five shopkeepers raise together, rupee for rupee. The
+resulting fund's benefit is split equally among all five shopkeepers,
+whichever of them actually paid in.
+
+**The math, worked and verified before writing a line of narrative**
+(`_road_fund_net()` in `story_games.py`): contributing your own rupee
+only returns 2/5 of a rupee to *you* (the pool is doubled by the match,
+then divided five ways), so holding back beats contributing at **every**
+possible level of what the other four do — asserted directly:
+
+```
+S=  0  contribute0 -> net=   0   contributeFull -> net= -60   (0 wins: True)
+S=100  contribute0 -> net=  40   contributeFull -> net= -20   (0 wins: True)
+S=200  contribute0 -> net=  80   contributeFull -> net=  20   (0 wins: True)
+S=300  contribute0 -> net= 120   contributeFull -> net=  60   (0 wins: True)
+S=400  contribute0 -> net= 160   contributeFull -> net= 100   (0 wins: True)
+```
+
+That's a genuine dominant strategy, not just a plausible-sounding story —
+and just as in Chapter 1, if all five *had* contributed, everyone would
+net **+100** instead of the equilibrium's **0**: a real Pareto improvement
+that individual rationality can't reach alone. The other four shopkeepers
+are modeled as already-rational free-riders (fixed at Rs 0), same
+deliberate-determinism choice as the Chapter 1 supplier.
+
+**Two structural additions this chapter needed:**
+- **`PayoffCell.col_payoff` is now optional.** A literal 2-player matrix
+  doesn't exist for a 5-player game — collapsing "the other 4" into one
+  column and giving it a single payoff would misrepresent each of their
+  actual incentives. Chapter 2 instead shows a one-sided *sensitivity
+  table*: the player's own payoff under two scenarios for what the group
+  does, which is the methodologically honest way to demonstrate dominance
+  with more than two decision-makers (compare within a column, i.e. hold
+  everyone else's behavior fixed — never compare across a row that
+  implies four other people all flipped their choice at once).
+- **`LessonPage.highlight_row`**: the equilibrium here isn't one cell,
+  it's a whole row (holding back dominates in *every* column) — a real
+  and useful contrast with Chapter 1's single highlighted cell, called
+  out explicitly in the lesson text.
+
+**A layout bug this chapter caught**: the row label "Contribute your
+share (Rs 100)" was wider than its column and silently rendered behind
+the next cell, undetected by Chapter 1 because its labels happened to be
+short enough to fit. `_draw_payoff_matrix()` now wraps row/column labels
+and sizes cells to whatever's actually longest instead of assuming a
+fixed width — and the lesson-phase action button now anchors below the
+matrix's real rendered height instead of a fixed offset from the panel
+bottom, so a taller table can't silently push the button off-panel (or,
+briefly during the fix, off the bottom of the screen entirely).
+
 ## Known limitations
 
 - Visuals are flat vector shapes, not sprite art — intentional, matches the

@@ -50,14 +50,21 @@ class QuizQuestion:
 @dataclass(frozen=True)
 class PayoffCell:
     row_payoff: int
-    col_payoff: int
+    # None for a single-decision-maker sensitivity table (e.g. "your payoff
+    # under two scenarios for what everyone else does") where there's no
+    # second player's payoff to show in the same cell — see Chapter 2.
+    col_payoff: Optional[int] = None
 
 
 @dataclass(frozen=True)
 class PayoffMatrix:
-    """A 2x2 normal-form payoff table for the lesson screen — actually
-    showing the matrix, not just describing it in prose, per direct
-    feedback asking for "prisoner's dilemma with 2x2 payoff matrix.\""""
+    """A 2x2 table for the lesson screen — actually showing the numbers,
+    not just describing them in prose, per direct feedback asking for
+    "prisoner's dilemma with 2x2 payoff matrix." Doubles as either a true
+    two-player normal-form matrix (paired payoffs per cell) or a one-sided
+    sensitivity table (single payoff per cell, PayoffCell.col_payoff=None)
+    for games with more than two decision-makers, where collapsing every
+    other player into one "column" would misrepresent their own incentives."""
     row_label: str
     col_label: str
     row_options: list[str]
@@ -71,6 +78,9 @@ class LessonPage:
     lines: list[str]
     show_matrix: bool = False
     highlight_cell: Optional[tuple] = None  # (row_idx, col_idx) in the matrix
+    highlight_row: Optional[int] = None  # highlight a whole row instead of one cell —
+    # a dominant strategy holds regardless of the column, so for some
+    # lessons the honest highlight is the whole row, not a single outcome.
 
 
 @dataclass(frozen=True)
@@ -214,6 +224,161 @@ QUALITY_PRICE_ENCOUNTER = Encounter(
 )
 
 
+# ---------------------------------------------------------------------------
+# Chapter 2: the road fund.
+#
+# A public-goods game with a matching-grant twist. Five shopkeepers
+# (the player + 4 others) can each contribute toward repairing the market
+# road; a traveling merchant matches whatever the five of them raise
+# together, rupee for rupee; and the resulting fund's benefit is split
+# equally among all five, whether or not they personally chipped in.
+#
+# This is the N-player generalization of Chapter 1's Prisoner's Dilemma —
+# the classic "free-rider problem." Contributing your own rupee only
+# returns 2/N of a rupee to YOU (here, 2/5 = 0.4), so holding back is a
+# dominant strategy regardless of what anyone else does, even though full
+# mutual contribution would leave everyone strictly richer. The other four
+# shopkeepers are modeled as already-rational free-riders (contribute 0),
+# same deliberate-determinism rationale as the supplier in Chapter 1 — see
+# _resolve_road_fund.
+# ---------------------------------------------------------------------------
+
+_ROAD_FUND_N = 5          # you + 4 other shopkeepers
+_ROAD_FUND_SHARE = 100     # the "fair share" ask per shopkeeper
+_ROAD_FUND_OTHERS_TOTAL = 0  # the other 4 shopkeepers' fixed (rational) contribution
+
+
+def _road_fund_net(contribution: int, others_total: int) -> tuple[int, int, int]:
+    shopkeeper_total = contribution + others_total
+    merchant_match = shopkeeper_total  # matches the shopkeepers' total, rupee for rupee
+    road_fund = shopkeeper_total + merchant_match
+    share_each = road_fund // _ROAD_FUND_N
+    return share_each - contribution, road_fund, share_each
+
+
+_ROAD_FUND_MATRIX = PayoffMatrix(
+    row_label="You",
+    col_label="The other 4 shopkeepers",
+    row_options=["Contribute nothing", f"Contribute Rs {_ROAD_FUND_SHARE}"],
+    col_options=["All free-ride", "All contribute"],
+    cells={
+        (0, 0): PayoffCell(_road_fund_net(0, 0)[0]),
+        (0, 1): PayoffCell(_road_fund_net(0, _ROAD_FUND_SHARE * (_ROAD_FUND_N - 1))[0]),
+        (1, 0): PayoffCell(_road_fund_net(_ROAD_FUND_SHARE, 0)[0]),
+        (1, 1): PayoffCell(_road_fund_net(_ROAD_FUND_SHARE, _ROAD_FUND_SHARE * (_ROAD_FUND_N - 1))[0]),
+    },
+)
+
+
+def _resolve_road_fund(player_choice: str, rng: random.Random) -> EncounterOutcome:
+    contribution = _ROAD_FUND_SHARE if player_choice == "contribute" else 0
+    net, road_fund, share_each = _road_fund_net(contribution, _ROAD_FUND_OTHERS_TOTAL)
+
+    if player_choice == "contribute":
+        lines = [
+            f"You put in Rs {contribution} toward the repair. The other four "
+            "shopkeepers quietly hold onto theirs.",
+            f"The merchant matches the group's total, so the fund comes to "
+            f"Rs {road_fund} — split five ways, that's Rs {share_each} back "
+            "to each shopkeeper, including the four who paid nothing.",
+        ]
+    else:
+        lines = [
+            "You keep your money. The other four shopkeepers do the same.",
+            "With nobody contributing, there's nothing for the merchant to "
+            "match, and no road fund at all — the road stays exactly as "
+            "broken as it was.",
+        ]
+    lines.append(f"Net effect on your business: {net:+d} rupees.")
+
+    return EncounterOutcome(player_payoff=net, result_lines=lines)
+
+
+ROAD_FUND_ENCOUNTER = Encounter(
+    id="road_fund",
+    chapter_title="Chapter 2: The Road Fund",
+    setup_lines=[
+        "Months into running your vegetable stall, the market road has "
+        "fallen into disrepair — deep ruts that scare off cart traffic "
+        "and customers alike.",
+        "You and four other shopkeepers along that road — the cloth "
+        "seller, the potter, the tea stall owner, and the grain merchant "
+        "— are each being asked to chip in toward fixing it. The repair "
+        f"is expected to cost about Rs {_ROAD_FUND_SHARE * _ROAD_FUND_N} "
+        f"total — Rs {_ROAD_FUND_SHARE} a fair share from each of you.",
+        "A traveling merchant passing through overhears the plan and "
+        "makes an offer: whatever the five of you shopkeepers put in "
+        "together, he'll match with an equal amount from his own purse.",
+        "Whatever gets raised — your contributions plus his matching "
+        "share — pays for the repair, and the benefit of a usable road "
+        "again is split equally among all five shopkeepers, however much "
+        "each of you actually put in.",
+        "It's your turn to decide: how much of your own money goes "
+        "toward the road?",
+    ],
+    choices=[
+        EncounterChoice("free_ride", "Contribute nothing", "Keep your money — let the others cover it."),
+        EncounterChoice("contribute", f"Contribute your share (Rs {_ROAD_FUND_SHARE})", "Trust that this pays off for everyone, including you."),
+    ],
+    resolve=_resolve_road_fund,
+    quiz=QuizQuestion(
+        prompt="Why does contributing your share cost you money personally, even with the merchant matching every rupee?",
+        options=[
+            "You only get back your equal 1-in-5 slice of the fund, which is less than what you put in, no matter what anyone else does — holding back is your dominant strategy.",
+            "The merchant secretly kept some of the matching money.",
+            "The road repair failed, so the money was wasted.",
+        ],
+        correct_index=0,
+    ),
+    matrix=_ROAD_FUND_MATRIX,
+    lesson_pages=[
+        LessonPage(
+            concept_name="Public Goods Game (The Free-Rider Problem)",
+            lines=[
+                "This is a bigger version of the same trap as the market "
+                "supplier — except now there are five of you instead of "
+                "two, and your payoff depends on what EVERYONE puts in, "
+                "not just one other person.",
+                "Contributions get pooled, doubled by the merchant's "
+                "match, then split equally among all five shopkeepers — "
+                "whether they contributed or not. Every rupee you put in "
+                "only sends 2/5 of a rupee back to you personally; the "
+                "rest subsidizes the other four.",
+                "Look at the table: whether the other shopkeepers free-ride "
+                "or all chip in, your own payoff is always higher in the "
+                "top row. That holds in every column — this is a dominant "
+                "strategy, the same idea as Chapter 1, just played out "
+                "across five people instead of two.",
+            ],
+            show_matrix=True,
+            highlight_row=0,
+        ),
+        LessonPage(
+            concept_name="Nash Equilibrium, Generalized",
+            lines=[
+                "When holding back is every shopkeeper's best move no "
+                "matter what the other four do, the Nash equilibrium is "
+                "all five of you contributing nothing — the road never "
+                "gets fixed.",
+                "Just like before, 'stable' isn't 'best': if all five of "
+                "you had contributed, the merchant's match would have "
+                "doubled a much bigger pool, and every one of you would "
+                "have walked away with more than you started with. Nobody "
+                "can get there by acting alone, though — that's exactly "
+                "what the free-rider problem punishes.",
+                "This is why real roads, bridges, and public services are "
+                "usually funded by taxes rather than voluntary donations: "
+                "at any real scale, asking people to fund something they "
+                "get to benefit from either way reliably breaks down.",
+            ],
+            show_matrix=True,
+            highlight_row=0,
+        ),
+    ],
+)
+
+
 STORY_ENCOUNTERS: dict[str, Encounter] = {
     QUALITY_PRICE_ENCOUNTER.id: QUALITY_PRICE_ENCOUNTER,
+    ROAD_FUND_ENCOUNTER.id: ROAD_FUND_ENCOUNTER,
 }

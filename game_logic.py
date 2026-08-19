@@ -480,9 +480,11 @@ class GameManager:
         # scenario — this is "his journey," not a simulated village day.
         # Chapter 1 opens the game at round 1 by design: the player should
         # meet the story before the repetitive village loop, not after
-        # three ordinary rounds of it.
+        # three ordinary rounds of it. Chapter 2 lands mid-game, once the
+        # player has had time back in the village loop between story beats.
         self.story_encounter_rounds: dict = story_encounter_rounds or {
             1: "quality_price",
+            min(8, total_rounds): "road_fund",
         }
         self._pending_encounter_id: str = ""
         self._pending_encounter_points: int = 0

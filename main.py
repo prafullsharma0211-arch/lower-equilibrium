@@ -1065,46 +1065,73 @@ class App:
             for wline in wrap_text(line, self.font_encounter, content_w):
                 surf = self.font_encounter.render(wline, True, COLOR_TEXT)
                 surface.blit(surf, (x, y))
-                y += 32
-            y += 14
+                y += 30
+            y += 10
         return y
 
-    def _draw_payoff_matrix(self, surface, matrix, top_left, highlight_cell=None):
+    def _draw_payoff_matrix(self, surface, matrix, top_left, highlight_cell=None, highlight_row=None):
         """An actual 2x2 payoff table, not just prose describing one — a
         playtester specifically asked to see the matrix, not just be told
-        about it."""
+        about it. Cells with col_payoff=None render a single number (a
+        one-sided sensitivity table — see Chapter 2, where collapsing four
+        other players into one "column" would misrepresent their own
+        incentives, so only the player's own payoff is shown per cell)."""
         x0, y0 = top_left
-        label_w, cell_w, header_h, cell_h = 180, 160, 30, 50
+        label_w, cell_w = 180, 160
+        line_h = 19
+
+        # Wrap labels instead of assuming they fit — a longer row/column
+        # label (Chapter 2's ran past its cell and got silently painted
+        # over by the next column) shouldn't be able to corrupt the
+        # layout; row/column height grows to fit whatever's longest.
+        row_lines = [wrap_text(opt, self.font_encounter_small, label_w - 36 - 12) or [opt] for opt in matrix.row_options]
+        col_lines = [wrap_text(opt, self.font_encounter_small, cell_w - 12) or [opt] for opt in matrix.col_options]
+        cell_h = max(44, line_h * max(len(lines) for lines in row_lines) + 16)
+        header_h = max(28, line_h * max(len(lines) for lines in col_lines) + 10)
+
+        def _blit_centered_block(lines, cx, cy):
+            total_h = len(lines) * line_h
+            ty = cy - total_h // 2
+            for line in lines:
+                surf = self.font_encounter_small.render(line, True, COLOR_TEXT)
+                surface.blit(surf, (cx - surf.get_width() // 2, ty))
+                ty += line_h
 
         col_title = self.font_encounter_small.render(matrix.col_label, True, (230, 179, 51))
         col_area_w = cell_w * len(matrix.col_options)
         surface.blit(col_title, (x0 + label_w + col_area_w // 2 - col_title.get_width() // 2, y0 - 22))
 
-        for j, opt in enumerate(matrix.col_options):
+        for j, lines in enumerate(col_lines):
             rect = pygame.Rect(x0 + label_w + j * cell_w, y0, cell_w, header_h)
             pygame.draw.rect(surface, (42, 42, 54), rect)
             pygame.draw.rect(surface, (85, 85, 98), rect, 1)
-            text = self.font_encounter_small.render(opt, True, COLOR_TEXT)
-            surface.blit(text, (rect.centerx - text.get_width() // 2, rect.centery - text.get_height() // 2))
+            _blit_centered_block(lines, rect.centerx, rect.centery)
 
         row_title = self.font_encounter_small.render(matrix.row_label, True, (230, 179, 51))
         surface.blit(row_title, (x0, y0 + header_h + (cell_h * len(matrix.row_options)) // 2 - row_title.get_height() // 2))
 
-        for i, opt in enumerate(matrix.row_options):
+        for i, lines in enumerate(row_lines):
             row_y = y0 + header_h + i * cell_h
             row_rect = pygame.Rect(x0 + 36, row_y, label_w - 36, cell_h)
             pygame.draw.rect(surface, (42, 42, 54), row_rect)
             pygame.draw.rect(surface, (85, 85, 98), row_rect, 1)
-            text = self.font_encounter_small.render(opt, True, COLOR_TEXT)
-            surface.blit(text, (row_rect.left + 6, row_rect.centery - text.get_height() // 2))
+            # left-aligned, unlike the centered helper — row labels read
+            # better flush to the left edge of their cell
+            total_h = len(lines) * line_h
+            ty = row_rect.centery - total_h // 2
+            for line in lines:
+                surf = self.font_encounter_small.render(line, True, COLOR_TEXT)
+                surface.blit(surf, (row_rect.left + 6, ty))
+                ty += line_h
 
             for j in range(len(matrix.col_options)):
                 cell = matrix.cells[(i, j)]
                 rect = pygame.Rect(x0 + label_w + j * cell_w, row_y, cell_w, cell_h)
-                is_hl = highlight_cell == (i, j)
+                is_hl = highlight_cell == (i, j) or highlight_row == i
                 pygame.draw.rect(surface, (92, 60, 28) if is_hl else (28, 28, 36), rect)
                 pygame.draw.rect(surface, (230, 179, 51) if is_hl else (85, 85, 98), rect, 2 if is_hl else 1)
-                payoff = self.font_encounter_small.render(f"{cell.row_payoff:+d}, {cell.col_payoff:+d}", True, COLOR_TEXT)
+                label = f"{cell.row_payoff:+d}" if cell.col_payoff is None else f"{cell.row_payoff:+d}, {cell.col_payoff:+d}"
+                payoff = self.font_encounter_small.render(label, True, COLOR_TEXT)
                 surface.blit(payoff, (rect.centerx - payoff.get_width() // 2, rect.centery - payoff.get_height() // 2))
 
         return y0 + header_h + cell_h * len(matrix.row_options)
@@ -1114,7 +1141,7 @@ class App:
         surface.fill((46, 38, 28))
 
         enc = self.current_encounter
-        panel = pygame.Rect(0, 0, 900, 620)
+        panel = pygame.Rect(0, 0, 900, 660)
         panel.center = (WIDTH // 2, HEIGHT // 2)
         pygame.draw.rect(surface, COLOR_PANEL, panel, border_radius=10)
 
@@ -1176,18 +1203,22 @@ class App:
                 verdict_color = (140, 220, 140) if self.encounter_quiz_correct else (230, 180, 120)
                 surf = self.font_encounter.render(verdict, True, verdict_color)
                 surface.blit(surf, (panel.left + 24, y))
-                y += 36
+                y += 32
 
             badge = self.font_encounter_small.render(f"Concept: {page.concept_name}", True, (230, 179, 51))
             surface.blit(badge, (panel.left + 24, y))
-            y += 32
+            y += 28
 
             all_shown = self.encounter_line_index >= len(page.lines) - 1
             y = self._draw_encounter_lines(surface, page.lines, panel.left + 24, y, content_w)
 
+            content_bottom = y
             if all_shown and page.show_matrix and enc.matrix:
-                y += 8
-                self._draw_payoff_matrix(surface, enc.matrix, (panel.left + 24, y), highlight_cell=page.highlight_cell)
+                y += 6
+                content_bottom = self._draw_payoff_matrix(
+                    surface, enc.matrix, (panel.left + 24, y),
+                    highlight_cell=page.highlight_cell, highlight_row=page.highlight_row,
+                )
 
             is_last = self.encounter_lesson_page == len(enc.lesson_pages) - 1
             if all_shown:
@@ -1196,12 +1227,18 @@ class App:
             else:
                 label = "Next"
                 advance = lambda: self._encounter_advance_lines(page.lines, self._encounter_lesson_next)
-            btn = pygame.Rect(panel.right - 260, panel.bottom - 60, 236, 44)
+            # Anchored to whichever is lower: the panel's usual bottom
+            # margin, or just past the matrix — a wrapped row label can
+            # make the matrix taller than the fixed margin allows for, and
+            # a fixed offset silently overlapped it (see Chapter 2's "You"
+            # row label bleeding into the page indicator).
+            btn_top = max(panel.bottom - 60, content_bottom + 24)
+            btn = pygame.Rect(panel.right - 260, btn_top, 236, 44)
             self._encounter_button(surface, btn, label, advance)
             page_label = self.font_encounter_small.render(
                 f"{self.encounter_lesson_page + 1} / {len(enc.lesson_pages)}", True, COLOR_TEXT_DIM,
             )
-            surface.blit(page_label, (panel.left + 24, panel.bottom - 44))
+            surface.blit(page_label, (panel.left + 24, btn.centery - page_label.get_height() // 2))
 
     # ------------------------------------------------------------------
     # Rendering — Home
