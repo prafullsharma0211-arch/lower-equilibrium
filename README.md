@@ -328,40 +328,56 @@ into specific rounds of that journey — new module `story_games.py`,
 minimal hook into `game_logic.py`:
 
 - **`game_logic.py`**: `GameManager.story_encounter_rounds` maps a round
-  number to an encounter id (round 4 → `"quality_price"` by default).
-  When that round comes up, `submit_story_encounter(points_delta,
-  encounter_id)` applies the encounter's own payoff directly to the
-  player's score — deliberately *not* stacked on top of the normal
-  zone-based Solo payoff, since the encounter's outcome **is** that
-  round's result, not a bonus.
+  number to an encounter id (round **1** → `"quality_price"` by default —
+  the story opens the game immediately, before three rounds of the
+  ordinary village loop). When that round comes up,
+  `submit_story_encounter(points_delta, encounter_id)` applies the
+  encounter's own payoff directly to the player's score — deliberately
+  *not* stacked on top of the normal zone-based Solo payoff, since the
+  encounter's outcome **is** that round's result, not a bonus.
 - **`story_games.py`** (no pygame dependency, same rationale as
   `game_logic.py` — content and payoff logic should be testable on their
   own): each `Encounter` has a narrative setup, 2+ choices, a `resolve()`
   function computing the payoff, a quiz question that asks the player to
-  explain what just happened, and plain-language `lesson_lines` revealing
-  the actual game-theory concept.
-- **Chapter 1 — "The Supplier at the Market"**: a one-shot simultaneous
-  quality/price game. You decide what to pay a construction-material
-  supplier before knowing whether he'll deliver good or bad material; he
-  decides simultaneously, knowing you're a one-time customer he'll never
+  explain what just happened, an optional `PayoffMatrix` (an actual 2x2
+  table, not just prose describing one), and `lesson_pages` — the
+  teaching reveal can be staged across multiple pages rather than one
+  wall of text.
+- **Chapter 1 — "Building Your Stall"**: opens the game by casting the
+  player as a farmer who's decided to start a fresh-vegetable stall from
+  his own harvest. The first real decision is a one-shot simultaneous
+  quality/price game: what to pay the stall's materials supplier before
+  knowing whether he'll deliver sturdy wood or cheap wood; he decides
+  simultaneously, knowing the player is a one-time customer he'll never
   see again. The payoff table (`_QUALITY_PRICE_PAYOFFS`) is a genuine
   dominant-strategy Nash equilibrium isomorphic to the Prisoner's Dilemma:
-  Low-quality strictly dominates for the supplier regardless of what you
-  pay, Pay-Low strictly dominates for you regardless of what he delivers,
-  and yet mutual honesty (High price + High quality) would leave **both**
-  of you strictly better off than the equilibrium outcome — verified by
-  direct payoff-matrix assertions, not just eyeballed. This is the same
-  structure as Akerlof's "Market for Lemons."
+  Low-quality strictly dominates for the supplier regardless of what the
+  player pays, Pay-Low strictly dominates for the player regardless of
+  what he delivers, and yet mutual honesty (High price + High quality)
+  would leave **both** sides strictly better off than the equilibrium
+  outcome — verified by direct payoff-matrix assertions, not just
+  eyeballed. This is the same structure as Akerlof's "Market for Lemons."
+- **Two-stage lesson, taught in order** (per direct feedback: show the
+  actual matrix, name Prisoner's Dilemma first, then generalize to Nash
+  equilibrium — not the reverse): lesson page 1 names the situation as a
+  Prisoner's Dilemma and shows the full 2x2 matrix so the dominant-strategy
+  claims can be checked cell by cell; page 2 defines Nash equilibrium
+  properly (no one benefits from switching alone) against the *same*
+  matrix, with the equilibrium cell highlighted, and explicitly calls out
+  that a Nash equilibrium being "stable" isn't the same as it being
+  "good" — the Pareto-better outcome sits right there in the matrix,
+  unreachable by either side alone.
 - **UI flow** (`main.py`, screen_state `"encounter"`): setup → choice →
   result (plain mechanical outcome, no game-theory jargon yet) → quiz
-  (ask the player to explain *why*) → lesson (reveal the concept by name,
-  regardless of whether the quiz answer was right — the point is to
-  teach, not to gate the explanation behind a correct guess). The screen
-  reuses the Market screen's pause pattern (`game.set_paused(True)`) so
-  the round can't silently resolve while the player is still reading.
+  (ask the player to explain *why*) → the paginated lesson (reveal the
+  concept regardless of whether the quiz answer was right — the point is
+  to teach, not to gate the explanation behind a correct guess). The
+  screen reuses the Market screen's pause pattern (`game.set_paused(True)`)
+  so the round can't silently resolve while the player is still reading.
 - **Built as a framework, not a one-off**: `story_encounter_rounds` is a
-  dict and `STORY_ENCOUNTERS` is a lookup table specifically so more
-  chapters (subgame-perfect equilibrium via an extensive-form choice, the
+  dict and `STORY_ENCOUNTERS` is a lookup table, `PayoffMatrix` and
+  `LessonPage` are reusable dataclasses, specifically so more chapters
+  (subgame-perfect equilibrium via an extensive-form choice, the
   centipede game, different auction formats) can be added later as their
   own `Encounter` definitions without touching the round loop again.
 

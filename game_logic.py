@@ -478,8 +478,11 @@ class GameManager:
         # round_num -> encounter id (see story_games.py). Replaces that
         # round's normal action entirely with a scripted game-theory
         # scenario — this is "his journey," not a simulated village day.
+        # Chapter 1 opens the game at round 1 by design: the player should
+        # meet the story before the repetitive village loop, not after
+        # three ordinary rounds of it.
         self.story_encounter_rounds: dict = story_encounter_rounds or {
-            min(4, total_rounds): "quality_price",
+            1: "quality_price",
         }
         self._pending_encounter_id: str = ""
         self._pending_encounter_points: int = 0

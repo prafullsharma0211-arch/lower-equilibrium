@@ -380,6 +380,7 @@ class App:
         self.encounter_phase = None  # "setup" | "choice" | "result" | "quiz" | "lesson"
         self.encounter_outcome = None
         self.encounter_quiz_correct = None
+        self.encounter_lesson_page = 0
         self._encounter_buttons: list = []
 
         # Separate narration per screen — round-summary text (Home) must never
@@ -476,6 +477,7 @@ class App:
         self.encounter_phase = None
         self.encounter_outcome = None
         self.encounter_quiz_correct = None
+        self.encounter_lesson_page = 0
         self.home_narration = (
             "Round 1 of 20. Pick Solo for a safe guaranteed payoff, Approach to "
             "risk points on a new connection, or Intelligence to scout someone "
@@ -728,6 +730,7 @@ class App:
         self.encounter_phase = "setup"
         self.encounter_outcome = None
         self.encounter_quiz_correct = None
+        self.encounter_lesson_page = 0
         self.screen_state = "encounter"
         # Paused for the same reason the Market screen pauses: the round
         # loop would otherwise silently finish (and start the next one)
@@ -748,6 +751,13 @@ class App:
     def _encounter_quiz_answer(self, index: int):
         self.encounter_quiz_correct = index == self.current_encounter.quiz.correct_index
         self.encounter_phase = "lesson"
+        self.encounter_lesson_page = 0
+
+    def _encounter_lesson_next(self):
+        if self.encounter_lesson_page < len(self.current_encounter.lesson_pages) - 1:
+            self.encounter_lesson_page += 1
+        else:
+            self._encounter_finish()
 
     def _encounter_finish(self):
         self.current_encounter = None
@@ -1025,12 +1035,52 @@ class App:
             surface.blit(sub, (rect.left + 16, rect.top + 34))
         self._encounter_buttons.append((rect, callback))
 
+    def _draw_payoff_matrix(self, surface, matrix, top_left, highlight_cell=None):
+        """An actual 2x2 payoff table, not just prose describing one — a
+        playtester specifically asked to see the matrix, not just be told
+        about it."""
+        x0, y0 = top_left
+        label_w, cell_w, header_h, cell_h = 168, 150, 28, 46
+
+        col_title = self.font_small.render(matrix.col_label, True, (230, 179, 51))
+        col_area_w = cell_w * len(matrix.col_options)
+        surface.blit(col_title, (x0 + label_w + col_area_w // 2 - col_title.get_width() // 2, y0 - 20))
+
+        for j, opt in enumerate(matrix.col_options):
+            rect = pygame.Rect(x0 + label_w + j * cell_w, y0, cell_w, header_h)
+            pygame.draw.rect(surface, (42, 42, 54), rect)
+            pygame.draw.rect(surface, (85, 85, 98), rect, 1)
+            text = self.font_small.render(opt, True, COLOR_TEXT)
+            surface.blit(text, (rect.centerx - text.get_width() // 2, rect.centery - text.get_height() // 2))
+
+        row_title = self.font_small.render(matrix.row_label, True, (230, 179, 51))
+        surface.blit(row_title, (x0, y0 + header_h + (cell_h * len(matrix.row_options)) // 2 - row_title.get_height() // 2))
+
+        for i, opt in enumerate(matrix.row_options):
+            row_y = y0 + header_h + i * cell_h
+            row_rect = pygame.Rect(x0 + 34, row_y, label_w - 34, cell_h)
+            pygame.draw.rect(surface, (42, 42, 54), row_rect)
+            pygame.draw.rect(surface, (85, 85, 98), row_rect, 1)
+            text = self.font_small.render(opt, True, COLOR_TEXT)
+            surface.blit(text, (row_rect.left + 6, row_rect.centery - text.get_height() // 2))
+
+            for j in range(len(matrix.col_options)):
+                cell = matrix.cells[(i, j)]
+                rect = pygame.Rect(x0 + label_w + j * cell_w, row_y, cell_w, cell_h)
+                is_hl = highlight_cell == (i, j)
+                pygame.draw.rect(surface, (92, 60, 28) if is_hl else (28, 28, 36), rect)
+                pygame.draw.rect(surface, (230, 179, 51) if is_hl else (85, 85, 98), rect, 2 if is_hl else 1)
+                payoff = self.font_small.render(f"{cell.row_payoff:+d}, {cell.col_payoff:+d}", True, COLOR_TEXT)
+                surface.blit(payoff, (rect.centerx - payoff.get_width() // 2, rect.centery - payoff.get_height() // 2))
+
+        return y0 + header_h + cell_h * len(matrix.row_options)
+
     def _draw_encounter(self):
         surface = self.screen
         surface.fill((46, 38, 28))
 
         enc = self.current_encounter
-        panel = pygame.Rect(0, 0, 900, 560)
+        panel = pygame.Rect(0, 0, 900, 620)
         panel.center = (WIDTH // 2, HEIGHT // 2)
         pygame.draw.rect(surface, COLOR_PANEL, panel, border_radius=10)
 
@@ -1089,25 +1139,38 @@ class App:
                 y = rect.bottom + 10
 
         elif self.encounter_phase == "lesson":
-            verdict = "Correct!" if self.encounter_quiz_correct else "Not quite — here's what actually happened:"
-            verdict_color = (140, 220, 140) if self.encounter_quiz_correct else (230, 180, 120)
-            surf = self.font.render(verdict, True, verdict_color)
-            surface.blit(surf, (panel.left + 24, y))
-            y += 34
+            page = enc.lesson_pages[self.encounter_lesson_page]
 
-            badge = self.font_small.render(f"Concept: {enc.concept_name}", True, (230, 179, 51))
+            if self.encounter_lesson_page == 0:
+                verdict = "Correct!" if self.encounter_quiz_correct else "Not quite — here's what actually happened:"
+                verdict_color = (140, 220, 140) if self.encounter_quiz_correct else (230, 180, 120)
+                surf = self.font.render(verdict, True, verdict_color)
+                surface.blit(surf, (panel.left + 24, y))
+                y += 32
+
+            badge = self.font_small.render(f"Concept: {page.concept_name}", True, (230, 179, 51))
             surface.blit(badge, (panel.left + 24, y))
-            y += 30
+            y += 28
 
-            for line in enc.lesson_lines:
+            for line in page.lines:
                 for wline in wrap_text(line, self.font, content_w):
                     surf = self.font.render(wline, True, COLOR_TEXT)
                     surface.blit(surf, (panel.left + 24, y))
-                    y += 26
-                y += 10
+                    y += 24
+                y += 8
 
+            if page.show_matrix and enc.matrix:
+                y += 8
+                self._draw_payoff_matrix(surface, enc.matrix, (panel.left + 24, y), highlight_cell=page.highlight_cell)
+
+            is_last = self.encounter_lesson_page == len(enc.lesson_pages) - 1
+            label = "Continue your journey" if is_last else "Next"
             btn = pygame.Rect(panel.right - 220, panel.bottom - 60, 196, 40)
-            self._encounter_button(surface, btn, "Continue your journey", self._encounter_finish)
+            self._encounter_button(surface, btn, label, self._encounter_lesson_next)
+            page_label = self.font_small.render(
+                f"{self.encounter_lesson_page + 1} / {len(enc.lesson_pages)}", True, COLOR_TEXT_DIM,
+            )
+            surface.blit(page_label, (panel.left + 24, panel.bottom - 46))
 
     # ------------------------------------------------------------------
     # Rendering — Home
