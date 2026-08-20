@@ -81,6 +81,9 @@ class LessonPage:
     highlight_row: Optional[int] = None  # highlight a whole row instead of one cell —
     # a dominant strategy holds regardless of the column, so for some
     # lessons the honest highlight is the whole row, not a single outcome.
+    highlight_cells: Optional[list] = None  # multiple cells — a coordination
+    # game like Stag Hunt has more than one genuine Nash equilibrium, and
+    # showing only one would misrepresent the game.
 
 
 @dataclass(frozen=True)
@@ -378,7 +381,156 @@ ROAD_FUND_ENCOUNTER = Encounter(
 )
 
 
+# ---------------------------------------------------------------------------
+# Chapter 3: the cold storage bet.
+#
+# A Stag Hunt (coordination game), genuinely different from Chapters 1-2:
+# there is no dominant strategy for either side. A rare, fast-spoiling
+# vegetable is only worth importing if a warehouse owner separately builds
+# cold storage; the storage is only worth building if there's perishable
+# trade to justify it. Committing together (Import Special + Build) is the
+# best outcome for both — but it's not safe, because committing ALONE while
+# the other side plays safe is the worst outcome. Playing safe together
+# (Import Regular + Don't Build) is also a stable equilibrium, just a worse
+# one. Verified algebraically (both same-action cells are Nash equilibria,
+# both mismatched cells are not, and mutual commitment Pareto-dominates
+# mutual caution) before writing a line of narrative — see the module
+# docstring's sibling chapters for the same discipline.
+#
+# The warehouse owner is scripted to play safe (Don't Build) — same
+# deliberate-determinism rationale as Chapters 1-2's opponents: he has no
+# established trust with a still-new farmer, so absent any assurance he
+# defaults to the risk-dominant choice. That's not a quirk of this one
+# NPC — it's the central real-world insight a Stag Hunt is built to teach.
+# ---------------------------------------------------------------------------
+
+_STAG_HUNT_PAYOFFS = {
+    # (farmer_choice, supplier_choice): (farmer_payoff, supplier_payoff)
+    ("import_special", "build"): (150, 150),
+    ("import_special", "no_build"): (-100, 40),
+    ("import_regular", "build"): (40, -80),
+    ("import_regular", "no_build"): (40, 40),
+}
+
+_STAG_HUNT_MATRIX = PayoffMatrix(
+    row_label="You",
+    col_label="Warehouse owner",
+    row_options=["Import special greens", "Import regular produce"],
+    col_options=["Builds cold storage", "Doesn't build"],
+    cells={
+        (0, 0): PayoffCell(*_STAG_HUNT_PAYOFFS[("import_special", "build")]),
+        (0, 1): PayoffCell(*_STAG_HUNT_PAYOFFS[("import_special", "no_build")]),
+        (1, 0): PayoffCell(*_STAG_HUNT_PAYOFFS[("import_regular", "build")]),
+        (1, 1): PayoffCell(*_STAG_HUNT_PAYOFFS[("import_regular", "no_build")]),
+    },
+)
+
+
+def _resolve_stag_hunt(player_choice: str, rng: random.Random) -> EncounterOutcome:
+    supplier_choice = "no_build"  # plays it safe -- see the lesson
+    player_payoff, _supplier_payoff = _STAG_HUNT_PAYOFFS[(player_choice, supplier_choice)]
+
+    if player_choice == "import_special":
+        lines = [
+            "You bring in a cart of the rare hill greens, banking on there "
+            "being somewhere to keep them fresh.",
+            "The warehouse owner decided the risk wasn't worth it and never "
+            "built the cold store. Within two days, your entire shipment "
+            "has spoiled, unsold.",
+        ]
+    else:
+        lines = [
+            "You stick with your usual produce.",
+            "The warehouse owner, seeing no clear demand for cold storage, "
+            "doesn't build it either — turns out you both played it safe.",
+        ]
+    lines.append(f"Net effect on your business: {player_payoff:+d} rupees.")
+
+    return EncounterOutcome(player_payoff=player_payoff, result_lines=lines)
+
+
+STAG_HUNT_ENCOUNTER = Encounter(
+    id="stag_hunt",
+    chapter_title="Chapter 3: The Cold Storage Bet",
+    setup_lines=[
+        "Your vegetable stall has been steady work, but you've heard about "
+        "a rare, high-value leafy green grown only in the hills — "
+        "delicate, and it spoils within two days unless kept properly "
+        "cold.",
+        "If you could sell it fresh, it would fetch triple what your usual "
+        "produce does. But without a cold store nearby, it would rot in "
+        "your cart before a single customer saw it.",
+        "There's a warehouse owner in town weighing whether to build a "
+        "proper cold-storage unit — a serious investment for him, and "
+        "only worth it if there's enough perishable trade in town to "
+        "justify it.",
+        "Neither of you knows what the other will decide. If you both "
+        "commit — you import, he builds — you'll both do very well. But "
+        "if only one of you commits and the other plays it safe, whoever "
+        "gambled alone takes the loss.",
+        "What do you do?",
+    ],
+    choices=[
+        EncounterChoice("import_special", "Import the special greens", "Big reward if the cold storage gets built — a real loss if it doesn't."),
+        EncounterChoice("import_regular", "Stick with your regular produce", "Smaller, steady profit no matter what he decides."),
+    ],
+    resolve=_resolve_stag_hunt,
+    quiz=QuizQuestion(
+        prompt="Why did importing the special greens lose you money this time, when Chapter 1's 'safe' choice was always correct regardless of the other side?",
+        options=[
+            "Because this game has no dominant strategy — the right move depends entirely on what the other person does, and you bet on trust that didn't pay off.",
+            "Because importing goods is against the rules.",
+            "Because the warehouse owner cheated you on purpose.",
+        ],
+        correct_index=0,
+    ),
+    matrix=_STAG_HUNT_MATRIX,
+    lesson_pages=[
+        LessonPage(
+            concept_name="Stag Hunt (a Coordination Game)",
+            lines=[
+                "This is a different kind of game from Chapters 1 and 2 — "
+                "there's no dominant strategy here. Importing the special "
+                "greens isn't always right or always wrong; it's only a "
+                "good move if the warehouse owner also commits.",
+                "This structure is called a Stag Hunt, from an old story "
+                "about two hunters: together they can catch a stag (a big "
+                "reward, but only if both commit to the hunt), or each can "
+                "catch a hare alone (small, safe, guaranteed).",
+                "Look at the matrix: if you BOTH commit (top-left), you "
+                "both do great. If you both play safe (bottom-right), you "
+                "both do fine. But if only one of you commits, that person "
+                "takes a real loss while the other stays safe.",
+            ],
+            show_matrix=True,
+        ),
+        LessonPage(
+            concept_name="Two Nash Equilibria",
+            lines=[
+                "Unlike Chapter 1's single equilibrium, this game has TWO "
+                "stable outcomes, both highlighted below: mutual "
+                "commitment (best for both) and mutual caution (safe, but "
+                "leaves value on the table).",
+                "Both are genuine Nash equilibria — at either one, neither "
+                "side can do better by switching alone. Which one you land "
+                "on depends entirely on trust: would you have committed "
+                "if you'd been sure the warehouse owner would too?",
+                "This is why real business partnerships lean on "
+                "contracts, deposits, and track records instead of blind "
+                "trust — they're tools for turning a risky Stag Hunt into "
+                "a safe bet on the better outcome, the same way Chapter "
+                "2's equilibrium showed why voluntary goodwill alone "
+                "often isn't enough.",
+            ],
+            show_matrix=True,
+            highlight_cells=[(0, 0), (1, 1)],
+        ),
+    ],
+)
+
+
 STORY_ENCOUNTERS: dict[str, Encounter] = {
     QUALITY_PRICE_ENCOUNTER.id: QUALITY_PRICE_ENCOUNTER,
     ROAD_FUND_ENCOUNTER.id: ROAD_FUND_ENCOUNTER,
+    STAG_HUNT_ENCOUNTER.id: STAG_HUNT_ENCOUNTER,
 }

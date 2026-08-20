@@ -485,6 +485,54 @@ rounds 1 and 8. Fixed:
   description, and verified directly that firing every callback at game
   start unlocks nothing.
 
+## Chapter 3 — The Cold Storage Bet: a Stag Hunt
+
+Chapters 1 and 2 both taught dominant-strategy games — there was always a
+single best move, regardless of what anyone else did. Chapter 3 (round 3,
+right after Chapter 2) is deliberately the opposite kind of game: a **Stag
+Hunt**, where the right move depends entirely on what the other side does,
+and there are two genuinely different stable outcomes instead of one.
+
+**The setup**: a rare, fast-spoiling hill vegetable is worth triple the
+usual price — but only sellable if a warehouse owner separately builds
+cold storage. The storage is only worth building if there's perishable
+trade to justify it. Neither the player nor the warehouse owner knows the
+other's decision in advance.
+
+**The payoff table** (`_STAG_HUNT_PAYOFFS` in `story_games.py`), verified
+algebraically before writing any narrative:
+
+```
+cell (Import Special, Builds Storage)  payoffs=(150, 150)  Nash equilibrium: True
+cell (Import Special, Doesn't Build)   payoffs=(-100, 40)  Nash equilibrium: False
+cell (Import Regular, Builds Storage)  payoffs=(40, -80)   Nash equilibrium: False
+cell (Import Regular, Doesn't Build)   payoffs=(40, 40)    Nash equilibrium: True
+mutual-commit Pareto-dominates mutual-safe: True (150, 150) vs (40, 40)
+```
+
+Exactly the defining Stag Hunt shape: both same-action cells are stable
+(mutual commitment and mutual caution), both mismatched cells are not (the
+side who committed alone always wants to retreat next time), and the
+mutual-commitment equilibrium is strictly better for both sides than the
+mutual-caution one — yet nothing *forces* either side toward it. The
+warehouse owner is scripted to play it safe (no established trust with a
+still-new farmer), so importing alone costs Rs 100 while playing safe
+alongside him nets Rs 40 — same deliberate-determinism choice as the
+Chapter 1-2 opponents.
+
+**One more framework addition**: `LessonPage.highlight_cells` (a list,
+alongside the existing single-cell and whole-row highlight options) — a
+coordination game genuinely has more than one Nash equilibrium, and the
+lesson page highlights both simultaneously rather than picking one to
+show, with the lesson text distinguishing the payoff-dominant one (better
+for both, but risky to trust) from the risk-dominant one (safe, but worse
+for both).
+
+Three chapters now form a real progression: a single dominant-strategy
+equilibrium (Ch1) → the same idea generalized to N players (Ch2) → a game
+with no dominant strategy at all, where the outcome hinges on trust
+instead of self-interest (Ch3).
+
 ## Known limitations
 
 - Visuals are flat vector shapes, not sprite art — intentional, matches the

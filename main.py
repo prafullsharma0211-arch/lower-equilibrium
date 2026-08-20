@@ -1070,7 +1070,7 @@ class App:
             y += 10
         return y
 
-    def _draw_payoff_matrix(self, surface, matrix, top_left, highlight_cell=None, highlight_row=None):
+    def _draw_payoff_matrix(self, surface, matrix, top_left, highlight_cell=None, highlight_row=None, highlight_cells=None):
         """An actual 2x2 payoff table, not just prose describing one — a
         playtester specifically asked to see the matrix, not just be told
         about it. Cells with col_payoff=None render a single number (a
@@ -1128,7 +1128,7 @@ class App:
             for j in range(len(matrix.col_options)):
                 cell = matrix.cells[(i, j)]
                 rect = pygame.Rect(x0 + label_w + j * cell_w, row_y, cell_w, cell_h)
-                is_hl = highlight_cell == (i, j) or highlight_row == i
+                is_hl = highlight_cell == (i, j) or highlight_row == i or (highlight_cells and (i, j) in highlight_cells)
                 pygame.draw.rect(surface, (92, 60, 28) if is_hl else (28, 28, 36), rect)
                 pygame.draw.rect(surface, (230, 179, 51) if is_hl else (85, 85, 98), rect, 2 if is_hl else 1)
                 label = f"{cell.row_payoff:+d}" if cell.col_payoff is None else f"{cell.row_payoff:+d}, {cell.col_payoff:+d}"
@@ -1219,6 +1219,7 @@ class App:
                 content_bottom = self._draw_payoff_matrix(
                     surface, enc.matrix, (panel.left + 24, y),
                     highlight_cell=page.highlight_cell, highlight_row=page.highlight_row,
+                    highlight_cells=page.highlight_cells,
                 )
 
             is_last = self.encounter_lesson_page == len(enc.lesson_pages) - 1
