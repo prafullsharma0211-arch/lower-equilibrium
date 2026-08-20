@@ -454,6 +454,37 @@ matrix's real rendered height instead of a fixed offset from the panel
 bottom, so a taller table can't silently push the button off-panel (or,
 briefly during the fix, off the bottom of the screen entirely).
 
+## Points are rupees, and the game now says so
+
+"Points" was always meant to represent money — the encounters already
+narrated outcomes as "Net effect on your business: -60 rupees" — but the
+HUD called it "Points," everyone started at 0, and Chapters 1-2 landed at
+rounds 1 and 8. Fixed:
+
+- **Every player starts with `STARTING_MONEY` = Rs 1000** (`game_logic.py`),
+  human and bots alike. It's a flat amount added equally to everyone, so it
+  shifts every final total up by exactly 1000 and never changes relative
+  standings — confirmed by re-running `test_logic.py` and diffing the
+  standings against the pre-change run (same ranks, same gaps, totals all
+  +1000).
+- **The HUD corner now reads "Money: Rs {amount}"** instead of "Points:
+  {amount}," alongside Round/Connections/Zone/Rank — this was the actual
+  ask, everything else followed from taking it seriously throughout the
+  rest of the game's text: the Market outcome banner, the Solo/Intelligence
+  narration prefixes, the round-summary line (including the AI-facilitator
+  prompt text it's built from, so an API-connected game narrates in rupees
+  too), the end-of-game standings and winner line, and the style-select
+  career-stats line all switched from "N pts" to "Rs N."
+- **Chapter 2 now lands at round 2**, immediately after Chapter 1 at round
+  1, instead of round 8 — the two lessons open the game back-to-back
+  rather than being spread across the first third of it.
+- **Fixed a real bug this surfaced**: the "High Scorer" achievement
+  unlocked at 1000 points, which — now that everyone *starts* at 1000 —
+  would have fired trivially the instant any game began. Retargeted to
+  `STARTING_MONEY * 2` (double your money, Rs 2000) with an updated
+  description, and verified directly that firing every callback at game
+  start unlocks nothing.
+
 ## Known limitations
 
 - Visuals are flat vector shapes, not sprite art — intentional, matches the

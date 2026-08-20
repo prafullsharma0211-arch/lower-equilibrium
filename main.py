@@ -28,6 +28,7 @@ from game_logic import (
     RiskStyle,
     SkillType,
     SoloResult,
+    STARTING_MONEY,
     get_zone_name,
 )
 
@@ -88,7 +89,7 @@ HELP_PAGES = [
         "network over 20 rounds.",
         "Every round, you and 15 other villagers each quietly make one "
         "move. Then the round resolves and the next begins.",
-        "Goal: end Round 20 with the most points.",
+        f"You start with Rs {STARTING_MONEY}. Goal: end Round 20 with the most money.",
         "A few rounds along the way are turning points in your journey — "
         "real business decisions that play out on their own screen, with "
         "the reasoning explained once you've made your choice.",
@@ -368,7 +369,7 @@ class App:
         self.newly_unlocked_this_game: list = []
 
         self.round_text = "Round 0 / 0"
-        self.points_text = "Points: 0"
+        self.points_text = f"Money: Rs {STARTING_MONEY}"
         self.connections_text = "Connections: 0"
         self.zone_text = "-"
         self.rank_text = "-"
@@ -470,7 +471,7 @@ class App:
         self.newly_unlocked_this_game = []
 
         self.round_text = f"Round 0 / {self.game.total_rounds}"
-        self.points_text = "Points: 0"
+        self.points_text = f"Money: Rs {STARTING_MONEY}"
         self.connections_text = "Connections: 0"
         self.zone_text = "-"
         self.rank_text = "-"
@@ -487,7 +488,7 @@ class App:
         self.encounter_line_index = 0  # how many lines of the current phase are revealed
         self.home_narration = (
             "Round 1 of 20. Pick Solo for a safe guaranteed payoff, Approach to "
-            "risk points on a new connection, or Intelligence to scout someone "
+            "risk money on a new connection, or Intelligence to scout someone "
             "first — hover a button (or tap ? Help) for details."
         )
         if not self.has_key:
@@ -598,10 +599,10 @@ class App:
         banner on the Market screen — a playtester with no context couldn't
         tell whether talking to someone had actually done anything."""
         if result.outcome == ApproachOutcome.ACCEPT:
-            return f"Connection formed with {result.target.name}! ({result.points_delta:+d} pts)", (90, 200, 110)
+            return f"Connection formed with {result.target.name}! ({result.points_delta:+d} rupees)", (90, 200, 110)
         if result.outcome == ApproachOutcome.STATUS_QUO:
-            return f"No connection yet — you can try again later. ({result.points_delta:+d} pts)", (210, 200, 120)
-        text = f"{result.target.name} wasn't interested this time. ({result.points_delta:+d} pts)"
+            return f"No connection yet — you can try again later. ({result.points_delta:+d} rupees)", (210, 200, 120)
+        text = f"{result.target.name} wasn't interested this time. ({result.points_delta:+d} rupees)"
         if result.burnout_triggered:
             text += " Burned out — Approach unavailable for a couple rounds."
         return text, (220, 120, 120)
@@ -614,7 +615,7 @@ class App:
         self.round_text = f"Round {round_num} / {self.game.total_rounds}"
 
     def _on_human_state_changed(self, human):
-        self.points_text = f"Points: {human.points}"
+        self.points_text = f"Money: Rs {human.points}"
         self.connections_text = f"Connections: {human.connection_count}"
         self.zone_text = get_zone_name(human.connection_count)
 
@@ -658,7 +659,7 @@ class App:
     def _on_human_action_result(self, result):
         if isinstance(result, SoloResult):
             delta = result.actor.points - self._points_before_action
-            prefix = f"Solo work: {delta:+d} pts. "
+            prefix = f"Solo work: {delta:+d} rupees. "
             self.facilitator.request_solo_narration(
                 result, lambda text, p=prefix: self._set_home_narration(p + text)
             )
@@ -680,7 +681,7 @@ class App:
             self.facilitator.request_approach_narration(result, self._set_market_narration)
         elif isinstance(result, IntelligenceResult):
             delta = result.querier.points - self._points_before_action
-            prefix = f"Intelligence: {delta:+d} pts. Learned {result.target.name}'s {result.data_point_type}: {result.data_point_value}. "
+            prefix = f"Intelligence: {delta:+d} rupees. Learned {result.target.name}'s {result.data_point_type}: {result.data_point_value}. "
             self.facilitator.request_intelligence_narration(
                 result, lambda text, p=prefix: self._set_home_narration(p + text)
             )
@@ -939,7 +940,7 @@ class App:
         sd = self.save_data
         achieved = len(sd.achievements)
         profile_lines = [
-            f"Games played: {sd.games_played}    Best score: {sd.best_score}",
+            f"Games played: {sd.games_played}    Best: Rs {sd.best_score}",
             f"Achievements: {achieved} / {len(ACHIEVEMENTS)}",
         ]
         panel = pygame.Rect(0, 0, 420, 70)
@@ -1657,12 +1658,12 @@ class App:
         y = panel.top + 56
         if self.final_standings:
             winner = self.final_standings[0]
-            winner_text = self.font.render(f"Winner: {winner.name} with {winner.points} pts", True, (255, 215, 0))
+            winner_text = self.font.render(f"Winner: {winner.name} with Rs {winner.points}", True, (255, 215, 0))
             self.screen.blit(winner_text, (panel.left + 20, y))
         y += 34
 
         for i, p in enumerate(self.final_standings):
-            line = f"{i + 1}. {p.name}: {p.points} pts ({p.connection_count} connections)"
+            line = f"{i + 1}. {p.name}: Rs {p.points} ({p.connection_count} connections)"
             text = self.font_small.render(line, True, COLOR_TEXT)
             self.screen.blit(text, (panel.left + 20, y))
             y += 19
@@ -1685,7 +1686,7 @@ class App:
         y += 8
         sd = self.save_data
         profile = self.font_small.render(
-            f"Career: {sd.games_played} games played, best score {sd.best_score}, "
+            f"Career: {sd.games_played} games played, best Rs {sd.best_score}, "
             f"{len(sd.achievements)}/{len(ACHIEVEMENTS)} achievements",
             True, COLOR_TEXT_DIM,
         )

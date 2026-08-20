@@ -144,7 +144,7 @@ _SOLO_JOB_TEXT = {
 
 def _solo_fallback(result: SoloResult) -> str:
     job_text = _SOLO_JOB_TEXT.get(result.job, "works alone")
-    return f"{result.actor.name} {job_text}. (+{result.points_earned} pts)"
+    return f"{result.actor.name} {job_text}. (+{result.points_earned} rupees)"
 
 
 _ACCEPT_EXCHANGES = [
@@ -211,7 +211,7 @@ def _round_summary_fallback(round_num: int, standings: list) -> str:
     if not standings:
         return f"Round {round_num} complete."
     leader = standings[0]
-    return f"Round {round_num} complete. {leader.name} leads with {leader.points} pts."
+    return f"Round {round_num} complete. {leader.name} leads with Rs {leader.points}."
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +258,7 @@ class FacilitatorClient:
     def request_solo_narration(self, result: SoloResult, callback: Callable[[str], None]) -> None:
         prompt = (
             f"Round event: {result.actor.name} spent this round working solo at their job: {result.job.name}.\n"
-            f"Points earned: {result.points_earned}\n"
+            f"Rupees earned: {result.points_earned}\n"
             f"{result.actor.name}'s current active connections: {result.actor.connection_count}\n\n"
             f"Narrate this quiet moment of village life for {result.actor.name}."
         )
@@ -270,8 +270,8 @@ class FacilitatorClient:
             f"{_persona_line(result.target)}"
             f"Skill relationship: {result.relationship.name}\n"
             f"Outcome: {result.outcome.name}\n"
-            f"Net points from this action: {result.points_delta}\n"
-            f"{result.actor.name}'s running total: {result.actor.points} pts, "
+            f"Net rupees from this action: {result.points_delta}\n"
+            f"{result.actor.name}'s running total: Rs {result.actor.points}, "
             f"{result.actor.connection_count} active connections.\n"
             + ("This player has just hit burnout after repeated rejections.\n" if result.burnout_triggered else "")
             + f"\nWrite this as a short spoken exchange between {result.actor.name} and {result.target.name} -- "
@@ -300,7 +300,7 @@ class FacilitatorClient:
             f"- {e['actor']} chose {e['action']}: {e['summary']}" for e in events[:12]
         ) or "(no notable events)"
         standing_lines = "\n".join(
-            f"- {p.name}: {p.points} pts" for p in standings[:8]
+            f"- {p.name}: Rs {p.points}" for p in standings[:8]
         ) or "(no standings provided)"
         prompt = (
             f"Round {round_num} has just ended.\n\nEvents:\n{event_lines}\n\n"

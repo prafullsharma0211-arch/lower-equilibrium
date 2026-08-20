@@ -282,6 +282,11 @@ class StoryEncounterResult:
 
 APPROACH_COST = 5
 INTELLIGENCE_COST = 2
+# Every farmer/shopkeeper starts the game with the same savings — makes
+# "points" legible as actual money (rupees) instead of an abstract score,
+# and since it's the same flat amount for every player it shifts everyone's
+# final total equally, so it never changes relative standings.
+STARTING_MONEY = 1000
 BURNOUT_THRESHOLD = 3
 # The proposal says burnout lasts "for some period" without a number —
 # an explicit, tunable interpretive choice.
@@ -478,13 +483,12 @@ class GameManager:
         # round_num -> encounter id (see story_games.py). Replaces that
         # round's normal action entirely with a scripted game-theory
         # scenario — this is "his journey," not a simulated village day.
-        # Chapter 1 opens the game at round 1 by design: the player should
-        # meet the story before the repetitive village loop, not after
-        # three ordinary rounds of it. Chapter 2 lands mid-game, once the
-        # player has had time back in the village loop between story beats.
+        # Chapters 1 and 2 open the game back-to-back at rounds 1 and 2 by
+        # design: the player should meet the story before the repetitive
+        # village loop, not after several ordinary rounds of it.
         self.story_encounter_rounds: dict = story_encounter_rounds or {
             1: "quality_price",
-            min(8, total_rounds): "road_fund",
+            min(2, total_rounds): "road_fund",
         }
         self._pending_encounter_id: str = ""
         self._pending_encounter_points: int = 0
@@ -497,6 +501,7 @@ class GameManager:
         skill_values = list(SkillType)
         self.human = PlayerData(
             0, human_name, self._rng.choice(skill_values), is_human=True, risk_style=human_risk_style,
+            points=STARTING_MONEY,
         )
         self.players: list = [self.human]
         for i in range(1, max(total_players, 2)):
@@ -511,6 +516,7 @@ class GameManager:
                 risk_tolerance=risk_tolerance,
                 risk_style=bot_style,
                 persona_trait=self._rng.choice(_PERSONA_TRAITS),
+                points=STARTING_MONEY,
             )
             self.players.append(bot)
 

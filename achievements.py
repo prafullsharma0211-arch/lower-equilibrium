@@ -14,7 +14,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from game_logic import ApproachOutcome, ApproachResult, GameManager, SkillRelationship
+from game_logic import ApproachOutcome, ApproachResult, GameManager, STARTING_MONEY, SkillRelationship
+
+# Every player now starts with STARTING_MONEY rupees already in hand (see
+# game_logic.py), so "reach 1000 points" would fire the instant the game
+# begins. The milestone is doubling your money instead, i.e. profiting
+# STARTING_MONEY rupees beyond what you started with.
+_HIGH_SCORE_TARGET = STARTING_MONEY * 2
 
 
 @dataclass(frozen=True)
@@ -32,7 +38,7 @@ ACHIEVEMENTS = [
     Achievement("burnout_recovery", "Burnout Recovery", "Recover from a burnout period."),
     Achievement("persistent", "Persistent", "Attempt 5 Approaches in a single game."),
     Achievement("risk_taker", "Risk Taker", "Land a Complementary-skill connection."),
-    Achievement("high_scorer", "High Scorer", "Reach 1000 points in a single game."),
+    Achievement("high_scorer", "High Scorer", f"Double your starting money — reach Rs {_HIGH_SCORE_TARGET}."),
 ]
 
 _BY_ID = {a.id: a for a in ACHIEVEMENTS}
@@ -74,7 +80,7 @@ class AchievementTracker:
             self._unlock("valley_survivor")
         if human.connection_count >= 15:
             self._unlock("global_optimum")
-        if human.points >= 1000:
+        if human.points >= _HIGH_SCORE_TARGET:
             self._unlock("high_scorer")
 
         if human.is_burned_out:
