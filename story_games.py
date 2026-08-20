@@ -96,6 +96,10 @@ class Encounter:
     quiz: QuizQuestion
     lesson_pages: list[LessonPage]
     matrix: Optional[PayoffMatrix] = None
+    # A drawn icon name (see draw_icon() in main.py) shown throughout the
+    # chapter — a visual anchor for the scenario, not just paragraphs of
+    # setup text, per direct feedback asking for more image, less text.
+    chapter_icon: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +190,7 @@ QUALITY_PRICE_ENCOUNTER = Encounter(
         correct_index=0,
     ),
     matrix=_QUALITY_PRICE_MATRIX,
+    chapter_icon="trade",
     lesson_pages=[
         LessonPage(
             concept_name="Prisoner's Dilemma",
@@ -334,6 +339,7 @@ ROAD_FUND_ENCOUNTER = Encounter(
         correct_index=0,
     ),
     matrix=_ROAD_FUND_MATRIX,
+    chapter_icon="road",
     lesson_pages=[
         LessonPage(
             concept_name="Public Goods Game (The Free-Rider Problem)",
@@ -485,6 +491,7 @@ STAG_HUNT_ENCOUNTER = Encounter(
         correct_index=0,
     ),
     matrix=_STAG_HUNT_MATRIX,
+    chapter_icon="cold_storage",
     lesson_pages=[
         LessonPage(
             concept_name="Stag Hunt (a Coordination Game)",
@@ -650,6 +657,7 @@ JUICE_STALL_ENCOUNTER = Encounter(
         correct_index=0,
     ),
     matrix=_CHICKEN_MATRIX,
+    chapter_icon="standoff",
     lesson_pages=[
         LessonPage(
             concept_name="Game of Chicken (Hawk-Dove)",

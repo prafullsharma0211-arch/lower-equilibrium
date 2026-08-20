@@ -177,6 +177,54 @@ def draw_icon(surface, name, center, scale=1.0):
         for pt, color in zip(points, colors):
             pygame.draw.circle(surface, color, pt, 6 * scale)
             pygame.draw.circle(surface, (20, 20, 20), pt, 6 * scale, 1)
+    elif name == "trade":
+        # a crate of goods changing hands for a coin — Chapter 1
+        crate = pygame.Rect(0, 0, 16 * scale, 14 * scale)
+        crate.center = (x - 6 * scale, y + 2 * scale)
+        pygame.draw.rect(surface, (150, 108, 66), crate, border_radius=1)
+        pygame.draw.rect(surface, (90, 60, 35), crate, max(1, round(scale)), border_radius=1)
+        pygame.draw.line(surface, (90, 60, 35), (crate.left, crate.centery), (crate.right, crate.centery), max(1, round(scale)))
+        pygame.draw.line(surface, (90, 60, 35), (crate.centerx, crate.top), (crate.centerx, crate.bottom), max(1, round(scale)))
+        coin = (x + 9 * scale, y - 3 * scale)
+        pygame.draw.circle(surface, (230, 200, 60), coin, 6 * scale)
+        pygame.draw.circle(surface, (150, 120, 30), coin, 6 * scale, max(1, round(scale)))
+    elif name == "road":
+        # a cracked road with the fund's coins collecting beside it — Chapter 2
+        road = pygame.Rect(0, 0, 26 * scale, 10 * scale)
+        road.center = (x - 2 * scale, y + 1 * scale)
+        pygame.draw.rect(surface, (110, 100, 95), road, border_radius=2)
+        for i in range(3):
+            dx0 = road.left + 4 * scale + i * 8 * scale
+            pygame.draw.line(surface, (225, 215, 195), (dx0, road.centery), (dx0 + 4 * scale, road.centery), max(1, round(scale)))
+        pygame.draw.circle(surface, (45, 40, 34), (road.centerx - 4 * scale, road.centery + 1 * scale), 2.5 * scale)
+        for i in range(2):
+            coin = pygame.Rect(0, 0, 10 * scale, 4 * scale)
+            coin.center = (x + 12 * scale, road.top - 2 * scale - i * 4 * scale)
+            pygame.draw.ellipse(surface, (230, 200, 60), coin)
+            pygame.draw.ellipse(surface, (150, 120, 30), coin, max(1, round(scale)))
+    elif name == "cold_storage":
+        # a cold-storage crate (snowflake) beside the perishable greens — Chapter 3
+        box = pygame.Rect(0, 0, 16 * scale, 14 * scale)
+        box.center = (x - 6 * scale, y + 2 * scale)
+        pygame.draw.rect(surface, (120, 170, 200), box, border_radius=2)
+        pygame.draw.rect(surface, (60, 100, 130), box, max(1, round(scale)), border_radius=2)
+        for angle in (0, 60, 120):
+            rad = math.radians(angle)
+            dx, dy = math.cos(rad) * 4 * scale, math.sin(rad) * 4 * scale
+            pygame.draw.line(surface, (255, 255, 255), (box.centerx - dx, box.centery - dy), (box.centerx + dx, box.centery + dy), max(1, round(scale)))
+        leaf = pygame.Rect(0, 0, 11 * scale, 7 * scale)
+        leaf.center = (x + 9 * scale, y - 3 * scale)
+        pygame.draw.ellipse(surface, (89, 191, 102), leaf)
+        pygame.draw.ellipse(surface, (50, 120, 60), leaf, max(1, round(scale)))
+    elif name == "standoff":
+        # two vendors' claims facing off, head to head — Chapter 4
+        left_tri = [(x - 15 * scale, y - 5 * scale), (x - 15 * scale, y + 5 * scale), (x - 2 * scale, y)]
+        pygame.draw.polygon(surface, (217, 76, 76), left_tri)
+        pygame.draw.polygon(surface, (20, 20, 20), left_tri, max(1, round(scale)))
+        right_tri = [(x + 15 * scale, y - 5 * scale), (x + 15 * scale, y + 5 * scale), (x + 2 * scale, y)]
+        pygame.draw.polygon(surface, (76, 166, 230), right_tri)
+        pygame.draw.polygon(surface, (20, 20, 20), right_tri, max(1, round(scale)))
+        pygame.draw.circle(surface, (230, 179, 51), (x, y), 2.5 * scale)
 
 
 def draw_person(surface, pos, color, scale=1.0, bob=0.0, outline=(20, 20, 20), facing=0):
@@ -1148,6 +1196,12 @@ class App:
 
         title = self.font_big.render(enc.chapter_title, True, COLOR_TEXT)
         surface.blit(title, (panel.left + 24, panel.top + 20))
+
+        # A themed drawn icon anchors the scenario visually — direct
+        # feedback asked for images over paragraphs. Skipped only on the
+        # quiz phase, whose full-width answer buttons would collide with it.
+        if enc.chapter_icon and self.encounter_phase != "quiz":
+            draw_icon(surface, enc.chapter_icon, (panel.right - 50, panel.top + 42), scale=1.5)
 
         self._encounter_buttons = []
         y = panel.top + 74

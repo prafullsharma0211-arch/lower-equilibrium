@@ -582,6 +582,21 @@ same-action equilibria, decided by trust (Ch3) → an anti-coordination
 game with two different-action equilibria, decided by who commits first
 (Ch4).
 
+## A drawn icon per chapter, not just paragraphs
+
+Direct feedback: explain things "in the form of image rather than text" to
+make the lessons more interesting, not just another wall of paragraphs
+(even with the payoff matrix already there). Each chapter now gets its own
+small drawn icon (`draw_icon()` in `main.py`, same hand-drawn-shapes
+approach as the how-to-play guide's icons — no external art assets
+anywhere in this project) shown in the corner throughout setup, choice,
+result, and lesson: a crate-and-coin for Chapter 1's trade, a cracked road
+with the fund's coins for Chapter 2, a cold-storage crate with a wilting
+leaf for Chapter 3, two vendors' claims facing off for Chapter 4's
+standoff. `Encounter.chapter_icon` names which one; it's deliberately
+*not* shown during the quiz phase, since the answer buttons there span
+the full panel width and would collide with it.
+
 ## Known limitations
 
 - Visuals are flat vector shapes, not sprite art — intentional, matches the
