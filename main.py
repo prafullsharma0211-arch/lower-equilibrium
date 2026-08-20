@@ -1154,6 +1154,50 @@ class App:
             surface.blit(sub, (rect.left + 16, rect.top + 36))
         self._encounter_buttons.append((rect, callback))
 
+    def _encounter_can_go_back(self) -> bool:
+        # A choice, once made, has already been submitted to the game
+        # (submit_story_encounter applies the payoff immediately) — so
+        # "back" only ever revisits already-settled, read-only content.
+        # It never lets you return to "choice" and pick differently once
+        # the outcome is known.
+        if self.encounter_phase == "setup":
+            return self.encounter_line_index > 0
+        if self.encounter_phase == "choice":
+            return True
+        if self.encounter_phase == "result":
+            return self.encounter_line_index > 0
+        if self.encounter_phase in ("quiz", "lesson"):
+            return True
+        return False
+
+    def _encounter_go_back(self):
+        enc = self.current_encounter
+        if self.encounter_phase == "setup" and self.encounter_line_index > 0:
+            self.encounter_line_index -= 1
+        elif self.encounter_phase == "choice":
+            self.encounter_phase = "setup"
+            self.encounter_line_index = len(enc.setup_steps) - 1
+        elif self.encounter_phase == "result" and self.encounter_line_index > 0:
+            self.encounter_line_index -= 1
+        elif self.encounter_phase == "quiz":
+            self.encounter_phase = "result"
+            self.encounter_line_index = len(self.encounter_outcome.result_lines) - 1
+        elif self.encounter_phase == "lesson":
+            if self.encounter_lesson_page > 0:
+                self.encounter_lesson_page -= 1
+                self.encounter_line_index = len(enc.lesson_pages[self.encounter_lesson_page].lines) - 1
+            else:
+                self.encounter_phase = "quiz"
+
+    def _draw_encounter_back_button(self, surface, panel):
+        enabled = self._encounter_can_go_back()
+        rect = pygame.Rect(panel.left + 16, panel.top + 18, 78, 30)
+        pygame.draw.rect(surface, COLOR_BUTTON if enabled else COLOR_BUTTON_DISABLED, rect, border_radius=6)
+        text = self.font_encounter_small.render("< Back", True, COLOR_TEXT if enabled else COLOR_TEXT_DIM)
+        surface.blit(text, (rect.centerx - text.get_width() // 2, rect.centery - text.get_height() // 2))
+        if enabled:
+            self._encounter_buttons.append((rect, self._encounter_go_back))
+
     def _draw_encounter_lines(self, surface, lines, x, y, content_w):
         """Renders lines[0 : encounter_line_index + 1] — everything revealed
         so far stays visible (context isn't lost), but nothing beyond the
@@ -1243,7 +1287,7 @@ class App:
         pygame.draw.rect(surface, COLOR_PANEL, panel, border_radius=10)
 
         title = self.font_big.render(enc.chapter_title, True, COLOR_TEXT)
-        surface.blit(title, (panel.left + 24, panel.top + 20))
+        surface.blit(title, (panel.left + 108, panel.top + 20))
 
         # A themed drawn icon anchors the scenario visually — direct
         # feedback asked for images over paragraphs. Skipped only on the
@@ -1252,6 +1296,7 @@ class App:
             draw_icon(surface, enc.chapter_icon, (panel.right - 50, panel.top + 42), scale=1.5)
 
         self._encounter_buttons = []
+        self._draw_encounter_back_button(surface, panel)
         y = panel.top + 74
         content_w = panel.width - 48
 

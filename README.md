@@ -635,6 +635,42 @@ corner icon attached. Restructures how a chapter opens:
   the container to the content, don't assume the content will fit a
   guessed size.
 
+## A "< Back" button on every encounter page
+
+Feedback from a screenshot of a Chapter 3 lesson page: there was no way to
+step backward through a chapter's setup boxes, its result explanation, or
+its lesson pages — only "Next." Added a back button, top-left of the panel,
+present across the whole encounter flow:
+
+- **`_draw_encounter_back_button()`** draws a small "< Back" pill at
+  `panel.left + 16, panel.top + 18`. The chapter title shifted right (from
+  `panel.left + 24` to `panel.left + 108`) to make room for it without
+  overlapping — checked against the longest chapter title in the game
+  ("Chapter 4: The Juice Stall Standoff") to confirm it still clears the
+  chapter icon on the opposite corner.
+- **`_encounter_can_go_back()` / `_encounter_go_back()`** define what "back"
+  means in each phase: within the setup storyboard or the result text it
+  just decrements the revealed-line index one step at a time; from the quiz
+  it returns to the result phase, fully revealed; from a lesson page it
+  goes to the previous page (fully revealed) or, from the first page, back
+  to the quiz. The button is hidden/disabled wherever there's nowhere to go
+  (the very first setup step, or the first result line).
+- **Deliberately does not go back into "choice."** Once a choice is made,
+  `submit_story_encounter()` applies its payoff to the player's points
+  immediately — that's already happened by the time "result" is showing.
+  Letting "back" reach into "choice" again would let a player see the
+  outcome and then pick a different answer with the outcome already known,
+  which defeats the point of a chapter that's about committing to a
+  decision under uncertainty. `_encounter_can_go_back()` returns `True` for
+  the "choice" phase itself (so you can step back into "setup" to reread
+  it), but nothing after a choice is submitted can step back past "result."
+- **Verified headlessly** that this invariant actually holds, not just that
+  it reads that way: made a real choice, advanced through the result,
+  clicked back repeatedly, ran more game-update cycles, and confirmed the
+  player's points changed by exactly the one committed payoff regardless of
+  how much backward/forward navigation happened afterward — no
+  double-application, no way to re-roll a decision.
+
 ## Known limitations
 
 - Visuals are flat vector shapes, not sprite art — intentional, matches the
