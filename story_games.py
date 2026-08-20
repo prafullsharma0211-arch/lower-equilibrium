@@ -529,8 +529,175 @@ STAG_HUNT_ENCOUNTER = Encounter(
 )
 
 
+# ---------------------------------------------------------------------------
+# Chapter 4: the juice stall standoff.
+#
+# A Game of Chicken (Hawk-Dove) — the mirror image of Chapter 3's Stag
+# Hunt. There, matching the other side was the good outcome; here, matching
+# is the disaster. The market can only support one green-juice stall: if
+# both the player and the rival vendor open (mutual Hawk), they crash —
+# both lose money undercutting each other in a market too small for
+# either. If exactly one opens, that one wins the whole new market and the
+# other is unaffected. Two pure Nash equilibria, both on the off-diagonal
+# (one side Hawk, the other Dove) — verified algebraically (both
+# mismatched cells are stable, both matched cells are not, and winning
+# alone beats mutual restraint beats mutual crash) before writing a line
+# of narrative, same discipline as the earlier chapters.
+#
+# This chapter also introduces a genuine third move beyond the normal
+# simultaneous 2-choice pattern: publicly, irreversibly committing to open
+# before the rival decides — Schelling's "burning your bridges" (the
+# steering-wheel-out-the-window move from the classic telling of Chicken).
+# A credible, irreversible commitment changes the OPPONENT's best response:
+# facing a rival who provably can't back down, the rational move is to
+# yield rather than crash. See _resolve_juice_stall: quietly opening with
+# no signal meets the rival's own default plan to open too (mutual
+# crash — neither side had a reason to expect the other to back off);
+# not opening leaves the rival's default plan untouched (they win, you're
+# safe); publicly committing is the only choice that flips the rival's
+# default from Hawk to Dove.
+# ---------------------------------------------------------------------------
+
+_CHICKEN_PAYOFFS = {
+    # (player_move, rival_move): (player_payoff, rival_payoff), Hawk = compete, Dove = back off
+    ("hawk", "hawk"): (-120, -120),
+    ("hawk", "dove"): (200, 20),
+    ("dove", "hawk"): (20, 200),
+    ("dove", "dove"): (20, 20),
+}
+
+_CHICKEN_MATRIX = PayoffMatrix(
+    row_label="You",
+    col_label="Rival vendor",
+    row_options=["Open your stall", "Don't open"],
+    col_options=["Opens too", "Backs off"],
+    cells={
+        (0, 0): PayoffCell(*_CHICKEN_PAYOFFS[("hawk", "hawk")]),
+        (0, 1): PayoffCell(*_CHICKEN_PAYOFFS[("hawk", "dove")]),
+        (1, 0): PayoffCell(*_CHICKEN_PAYOFFS[("dove", "hawk")]),
+        (1, 1): PayoffCell(*_CHICKEN_PAYOFFS[("dove", "dove")]),
+    },
+)
+
+
+def _resolve_juice_stall(player_choice: str, rng: random.Random) -> EncounterOutcome:
+    if player_choice == "commit_publicly":
+        player_move, rival_move = "hawk", "dove"
+        lines = [
+            "You sign a lease on the corner stall that same afternoon and "
+            "tell everyone in the market who'll listen.",
+            "Word gets back to the rival vendor fast — and by evening, "
+            "he's quietly dropped the idea. No point competing with a "
+            "done deal. You open the green juice stall alone.",
+        ]
+    elif player_choice == "open_quietly":
+        player_move, rival_move = "hawk", "hawk"
+        lines = [
+            "You start quietly sourcing greens and a blender, telling no "
+            "one.",
+            "Turns out the rival vendor had the exact same idea, and "
+            "neither of you knew it. By the time you both realize it, "
+            "you're already mid-setup and neither backs down — two green "
+            "juice stalls open the same week, in a market that can't "
+            "support either.",
+        ]
+    else:  # dont_open
+        player_move, rival_move = "dove", "hawk"
+        lines = [
+            "You decide it's not worth the risk and keep running your "
+            "stall as it is.",
+            "Sure enough, the rival vendor opens a green juice stall a "
+            "few weeks later — and it does well. No loss for you, but "
+            "the opportunity's gone.",
+        ]
+
+    player_payoff, _rival_payoff = _CHICKEN_PAYOFFS[(player_move, rival_move)]
+    lines.append(f"Net effect on your business: {player_payoff:+d} rupees.")
+    return EncounterOutcome(player_payoff=player_payoff, result_lines=lines)
+
+
+JUICE_STALL_ENCOUNTER = Encounter(
+    id="juice_stall",
+    chapter_title="Chapter 4: The Juice Stall Standoff",
+    setup_lines=[
+        "Your stall's doing well, and you've spotted a gap in the market: "
+        "nobody's selling fresh green juice — fruit blended with leafy "
+        "greens. You could set it up within a week.",
+        "But you're not the only one who's noticed. A rival fruit vendor "
+        "across the market has been eyeing the exact same idea.",
+        "The market's only big enough to support ONE green juice stall. "
+        "If you both open, you'll flood a market that can barely support "
+        "one — and you'll both lose money undercutting each other.",
+        "If only one of you opens, that person captures the whole new "
+        "market. Whoever backs off just keeps running their stall as "
+        "usual — no loss, just no upside either.",
+        "You don't know what the rival vendor is planning. But you have "
+        "options beyond just guessing.",
+    ],
+    choices=[
+        EncounterChoice("open_quietly", "Quietly start setting up", "No announcement — you're hoping he doesn't have the same idea."),
+        EncounterChoice("dont_open", "Don't bother — stick with your stall as is", "Safe. If he opens, he gets the new market; you lose nothing."),
+        EncounterChoice("commit_publicly", "Announce it loudly — sign a lease, tell the market", "Burn the bridge: make it impossible to back out, before he decides."),
+    ],
+    resolve=_resolve_juice_stall,
+    quiz=QuizQuestion(
+        prompt="Why did announcing your plans loudly actually make you MORE likely to win the market, not less?",
+        options=[
+            "Once your commitment was public and irreversible, the rival's best move flipped — competing head-on would now cost him more than backing off.",
+            "The rival vendor was scared of you personally.",
+            "Loud announcements always work in negotiations.",
+        ],
+        correct_index=0,
+    ),
+    matrix=_CHICKEN_MATRIX,
+    lesson_pages=[
+        LessonPage(
+            concept_name="Game of Chicken (Hawk-Dove)",
+            lines=[
+                "This is another game with no dominant strategy, like "
+                "Chapter 3 — but the opposite shape. In the Stag Hunt, "
+                "matching the other side was the GOOD outcome. Here, "
+                "matching is the WORST outcome.",
+                "This structure is called the Game of Chicken, or "
+                "Hawk-Dove: two drivers heading straight at each other. "
+                "Swerve and you look weak but survive; both hold straight "
+                "and you crash.",
+                "In your case: opening together is the crash (a market "
+                "too small for both of you), and the two stable outcomes "
+                "are the ones where you do DIFFERENT things — one of you "
+                "opens, the other backs off.",
+            ],
+            show_matrix=True,
+        ),
+        LessonPage(
+            concept_name="Two Equilibria, and the Power of Commitment",
+            lines=[
+                "Look at the matrix: (You open, they back off) and (You "
+                "back off, they open) are both Nash equilibria — "
+                "highlighted below. Whoever ends up backing off wouldn't "
+                "gain by switching alone; that would just cause the "
+                "crash instead.",
+                "Normally, which equilibrium you land on is down to luck "
+                "— neither side can be sure what the other will do. But "
+                "announcing your plans loudly and irreversibly changes "
+                "that: once the rival KNOWS you can't back out, their own "
+                "best move becomes backing off, not crashing into you.",
+                "This is a real, named tactic — economist Thomas "
+                "Schelling called it 'burning your bridges': a "
+                "commitment only works if the other side believes you "
+                "truly can't reverse it. A steering wheel you can still "
+                "hold onto isn't a threat at all.",
+            ],
+            show_matrix=True,
+            highlight_cells=[(0, 1), (1, 0)],
+        ),
+    ],
+)
+
+
 STORY_ENCOUNTERS: dict[str, Encounter] = {
     QUALITY_PRICE_ENCOUNTER.id: QUALITY_PRICE_ENCOUNTER,
     ROAD_FUND_ENCOUNTER.id: ROAD_FUND_ENCOUNTER,
     STAG_HUNT_ENCOUNTER.id: STAG_HUNT_ENCOUNTER,
+    JUICE_STALL_ENCOUNTER.id: JUICE_STALL_ENCOUNTER,
 }

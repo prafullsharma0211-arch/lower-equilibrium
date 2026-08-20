@@ -533,6 +533,55 @@ equilibrium (Ch1) → the same idea generalized to N players (Ch2) → a game
 with no dominant strategy at all, where the outcome hinges on trust
 instead of self-interest (Ch3).
 
+## Chapter 4 — The Juice Stall Standoff: Chicken, and burning your bridges
+
+Chapter 3 was a Stag Hunt: matching the other side was the *good* outcome.
+Chapter 4 (round 4, right after Ch3) is its mirror image — a **Game of
+Chicken** (equivalently, Hawk-Dove), where matching is the *disaster* and
+the two stable outcomes both involve the two sides doing different things.
+
+**The setup**: the player spots a gap in the market for a green-juice
+stall; so has a rival vendor. The market can only support one. If both
+open, they crash — both lose money undercutting each other. If exactly
+one opens, that one wins the whole new market and the other is unaffected.
+
+**The payoff table** (`_CHICKEN_PAYOFFS` in `story_games.py`), verified
+algebraically before writing narrative:
+
+```
+cell (Open, Rival opens)   payoffs=(-120,-120)  Nash equilibrium: False
+cell (Open, Rival backs)   payoffs=(200, 20)     Nash equilibrium: True
+cell (Don't, Rival opens)  payoffs=(20, 200)      Nash equilibrium: True
+cell (Don't, Rival backs)  payoffs=(20, 20)        Nash equilibrium: False
+T (win alone) > R (mutual restraint) > P (mutual crash): True
+```
+
+The exact opposite shape from Chapter 3: there, the two *matching* cells
+were the equilibria; here, the two *mismatched* cells are. Winning alone
+beats mutual restraint beats mutual crash — the defining Chicken ranking.
+
+**A genuine third move, not just two**: alongside the normal "open
+quietly" (Hawk with no signal) and "don't open" (Dove), the player can
+"announce it loudly — sign a lease, tell the market" — a public,
+irreversible commitment. This is Thomas Schelling's "burning your
+bridges" (the steering-wheel-out-the-window move from the classic telling
+of Chicken): committing first doesn't just change what *you* do, it
+changes the *rival's* best response. `_resolve_juice_stall()` models this
+directly — quietly opening with no signal meets the rival's own default
+plan to open too (mutual crash, since neither side had reason to expect
+the other to yield); not opening leaves the rival's default untouched
+(they win, you're safe); publicly committing is the only choice that
+flips the rival's default from Hawk to Dove. The three outcomes rank
+exactly as the lesson intends: commit (+200) > don't open (+20) > open
+quietly (-120) — credible commitment strictly beats both playing it safe
+*and* gambling blind.
+
+Four chapters now cover: a single dominant-strategy equilibrium (Ch1) →
+the same idea at N players (Ch2) → a coordination game with two
+same-action equilibria, decided by trust (Ch3) → an anti-coordination
+game with two different-action equilibria, decided by who commits first
+(Ch4).
+
 ## Known limitations
 
 - Visuals are flat vector shapes, not sprite art — intentional, matches the
