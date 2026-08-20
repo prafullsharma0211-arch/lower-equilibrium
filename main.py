@@ -143,6 +143,17 @@ def _draw_vertical_gradient(surface, rect, top_color, bottom_color, step=3):
         pygame.draw.rect(surface, color, (x, y + row, w, step))
 
 
+_icon_font_cache: dict = {}
+
+
+def _icon_font(size: int):
+    font = _icon_font_cache.get(size)
+    if font is None:
+        font = pygame.font.Font(None, size)
+        _icon_font_cache[size] = font
+    return font
+
+
 def draw_icon(surface, name, center, scale=1.0):
     """Small drawn glyph (hut / handshake / magnifying glass / skill wheel)
     standing in for the three actions in the how-to-play guide — a
@@ -225,6 +236,43 @@ def draw_icon(surface, name, center, scale=1.0):
         pygame.draw.polygon(surface, (76, 166, 230), right_tri)
         pygame.draw.polygon(surface, (20, 20, 20), right_tri, max(1, round(scale)))
         pygame.draw.circle(surface, (230, 179, 51), (x, y), 2.5 * scale)
+    elif name == "idea":
+        # a lightbulb — a new opportunity spotted
+        bulb_c = (x, y - 2 * scale)
+        pygame.draw.circle(surface, (240, 210, 90), bulb_c, 7 * scale)
+        pygame.draw.circle(surface, (150, 120, 30), bulb_c, 7 * scale, max(1, round(scale)))
+        base = pygame.Rect(0, 0, 6 * scale, 4 * scale)
+        base.center = (x, y + 7 * scale)
+        pygame.draw.rect(surface, (130, 130, 138), base, border_radius=1)
+        for i in range(3):
+            ry = bulb_c[1] - 5 * scale + i * 3 * scale
+            pygame.draw.line(surface, (255, 255, 255), (bulb_c[0] - 2 * scale, ry), (bulb_c[0] + 2 * scale, ry), max(1, round(scale)))
+    elif name == "warning":
+        # a caution triangle — something could go wrong
+        tri = [(x, y - 9 * scale), (x - 9 * scale, y + 7 * scale), (x + 9 * scale, y + 7 * scale)]
+        pygame.draw.polygon(surface, (230, 179, 51), tri)
+        pygame.draw.polygon(surface, (20, 20, 20), tri, max(1, round(scale)))
+        pygame.draw.line(surface, (20, 20, 20), (x, y - 3 * scale), (x, y + 2 * scale), max(2, round(2 * scale)))
+        pygame.draw.circle(surface, (20, 20, 20), (x, y + 5 * scale), max(1, round(1.2 * scale)))
+    elif name == "question":
+        # uncertainty — neither side knows what the other will do
+        pygame.draw.circle(surface, (150, 150, 160), (x, y), 10 * scale)
+        pygame.draw.circle(surface, (40, 40, 48), (x, y), 10 * scale, max(1, round(scale)))
+        mark = _icon_font(max(12, round(17 * scale))).render("?", True, (255, 255, 255))
+        surface.blit(mark, (x - mark.get_width() // 2, y - mark.get_height() // 2))
+    elif name == "scale":
+        # a balance — the decision point
+        pygame.draw.line(surface, (210, 210, 220), (x, y - 9 * scale), (x, y + 8 * scale), max(2, round(2 * scale)))
+        pygame.draw.line(surface, (210, 210, 220), (x - 10 * scale, y - 6 * scale), (x + 10 * scale, y - 6 * scale), max(2, round(2 * scale)))
+        for dx in (-10 * scale, 10 * scale):
+            pygame.draw.line(surface, (210, 210, 220), (x + dx, y - 6 * scale), (x + dx, y + 1 * scale), max(1, round(scale)))
+            pan = pygame.Rect(0, 0, 10 * scale, 4 * scale)
+            pan.center = (x + dx, y + 2 * scale)
+            pygame.draw.ellipse(surface, (230, 179, 51), pan)
+            pygame.draw.ellipse(surface, (150, 120, 30), pan, max(1, round(scale)))
+        base = pygame.Rect(0, 0, 10 * scale, 3 * scale)
+        base.center = (x, y + 8 * scale)
+        pygame.draw.rect(surface, (150, 150, 160), base, border_radius=1)
 
 
 def draw_person(surface, pos, color, scale=1.0, bob=0.0, outline=(20, 20, 20), facing=0):
@@ -1208,10 +1256,52 @@ class App:
         content_w = panel.width - 48
 
         if self.encounter_phase == "setup":
-            all_shown = self.encounter_line_index >= len(enc.setup_lines) - 1
-            self._draw_encounter_lines(surface, enc.setup_lines, panel.left + 24, y, content_w)
+            steps = enc.setup_steps
+            n = len(steps)
+            gap = 14
+            box_w = min(160, (content_w - gap * (n - 1)) // n)
+            box_h = 106  # tall enough for a 2-line wrapped caption without clipping
+            total_w = box_w * n + gap * (n - 1)
+            start_x = panel.left + 24 + (content_w - total_w) // 2
+            box_y = y
+
+            for i, step in enumerate(steps):
+                rect = pygame.Rect(start_x + i * (box_w + gap), box_y, box_w, box_h)
+                revealed = i <= self.encounter_line_index
+                active = i == self.encounter_line_index
+                bg = (58, 46, 28) if active else ((40, 40, 50) if revealed else (26, 26, 32))
+                border = (230, 179, 51) if active else ((90, 90, 100) if revealed else (48, 48, 56))
+                pygame.draw.rect(surface, bg, rect, border_radius=8)
+                pygame.draw.rect(surface, border, rect, 2 if active else 1, border_radius=8)
+
+                num_color = (230, 179, 51) if active else (COLOR_TEXT_DIM if revealed else (70, 70, 78))
+                num = self.font_encounter_small.render(str(i + 1), True, num_color)
+                surface.blit(num, (rect.left + 8, rect.top + 6))
+
+                if revealed:
+                    draw_icon(surface, step.icon, (rect.centerx, rect.top + 38), scale=1.15)
+                    cap_color = COLOR_TEXT if active else COLOR_TEXT_DIM
+                    for j, cline in enumerate(wrap_text(step.caption, self.font_encounter_small, box_w - 16)[:2]):
+                        cap = self.font_encounter_small.render(cline, True, cap_color)
+                        surface.blit(cap, (rect.centerx - cap.get_width() // 2, rect.top + 60 + j * 20))
+                else:
+                    lock = self.font_encounter.render("?", True, (70, 70, 78))
+                    surface.blit(lock, (rect.centerx - lock.get_width() // 2, rect.centery - lock.get_height() // 2))
+
+                if i < n - 1:
+                    line_color = (90, 90, 100) if i < self.encounter_line_index else (48, 48, 56)
+                    pygame.draw.line(surface, line_color, (rect.right, rect.centery), (rect.right + gap, rect.centery), 2)
+
+            y = box_y + box_h + 22
+            current_text = steps[self.encounter_line_index].text
+            for wline in wrap_text(current_text, self.font_encounter, content_w):
+                surf = self.font_encounter.render(wline, True, COLOR_TEXT)
+                surface.blit(surf, (panel.left + 24, y))
+                y += 30
+
+            all_shown = self.encounter_line_index >= n - 1
             label = "Continue" if all_shown else "Next"
-            advance = lambda: self._encounter_advance_lines(enc.setup_lines, self._encounter_to_choice)
+            advance = lambda: self._encounter_advance_lines(steps, self._encounter_to_choice)
             btn = pygame.Rect(panel.right - 150, panel.bottom - 60, 126, 44)
             self._encounter_button(surface, btn, label, advance)
 

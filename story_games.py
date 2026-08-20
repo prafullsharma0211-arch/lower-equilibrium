@@ -28,6 +28,18 @@ from typing import Callable, Optional
 
 
 @dataclass(frozen=True)
+class Step:
+    """One beat of the setup narration — an icon and a short caption for
+    the horizontal storyboard strip, plus the full sentence shown as detail
+    text underneath once that step is reached. Direct feedback: explain
+    things "icon-wise for each statement... one box after another
+    horizontally," not a stack of plain paragraphs."""
+    icon: str
+    caption: str
+    text: str
+
+
+@dataclass(frozen=True)
 class EncounterChoice:
     id: str
     label: str
@@ -90,7 +102,7 @@ class LessonPage:
 class Encounter:
     id: str
     chapter_title: str
-    setup_lines: list[str]
+    setup_steps: list[Step]
     choices: list[EncounterChoice]
     resolve: Callable[[str, random.Random], EncounterOutcome]
     quiz: QuizQuestion
@@ -160,20 +172,24 @@ def _resolve_quality_price(player_choice: str, rng: random.Random) -> EncounterO
 QUALITY_PRICE_ENCOUNTER = Encounter(
     id="quality_price",
     chapter_title="Chapter 1: Building Your Stall",
-    setup_lines=[
-        "You've farmed this land your whole life. This season's harvest "
-        "was good enough that you've decided to try something new: a "
-        "fresh vegetable stall of your own at the village market, selling "
-        "straight from your farm.",
-        "First you need a proper stall — a sturdy wooden counter and "
-        "crates to display your produce. There's a materials supplier at "
-        "the market who can build it for you.",
-        "He knows you're a one-time buyer — he'll likely never deal with "
-        "you again after this. He could quietly use cheaper, weaker wood "
-        "instead of the sturdy stuff, and you won't be able to tell the "
-        "difference just by looking.",
-        "You have to decide what to pay him right now, before either of "
-        "you knows what the other will actually do.",
+    setup_steps=[
+        Step("idea", "New idea",
+             "You've farmed this land your whole life. This season's harvest "
+             "was good enough that you've decided to try something new: a "
+             "fresh vegetable stall of your own at the village market, selling "
+             "straight from your farm."),
+        Step("trade", "Find a supplier",
+             "First you need a proper stall — a sturdy wooden counter and "
+             "crates to display your produce. There's a materials supplier at "
+             "the market who can build it for you."),
+        Step("warning", "Could get cheated",
+             "He knows you're a one-time buyer — he'll likely never deal with "
+             "you again after this. He could quietly use cheaper, weaker wood "
+             "instead of the sturdy stuff, and you won't be able to tell the "
+             "difference just by looking."),
+        Step("scale", "Your move",
+             "You have to decide what to pay him right now, before either of "
+             "you knows what the other will actually do."),
     ],
     choices=[
         EncounterChoice("pay_low", "Offer the low price", "Rs 50 — protect yourself in case he cheats."),
@@ -305,24 +321,29 @@ def _resolve_road_fund(player_choice: str, rng: random.Random) -> EncounterOutco
 ROAD_FUND_ENCOUNTER = Encounter(
     id="road_fund",
     chapter_title="Chapter 2: The Road Fund",
-    setup_lines=[
-        "Months into running your vegetable stall, the market road has "
-        "fallen into disrepair — deep ruts that scare off cart traffic "
-        "and customers alike.",
-        "You and four other shopkeepers along that road — the cloth "
-        "seller, the potter, the tea stall owner, and the grain merchant "
-        "— are each being asked to chip in toward fixing it. The repair "
-        f"is expected to cost about Rs {_ROAD_FUND_SHARE * _ROAD_FUND_N} "
-        f"total — Rs {_ROAD_FUND_SHARE} a fair share from each of you.",
-        "A traveling merchant passing through overhears the plan and "
-        "makes an offer: whatever the five of you shopkeepers put in "
-        "together, he'll match with an equal amount from his own purse.",
-        "Whatever gets raised — your contributions plus his matching "
-        "share — pays for the repair, and the benefit of a usable road "
-        "again is split equally among all five shopkeepers, however much "
-        "each of you actually put in.",
-        "It's your turn to decide: how much of your own money goes "
-        "toward the road?",
+    setup_steps=[
+        Step("road", "Road's broken",
+             "Months into running your vegetable stall, the market road has "
+             "fallen into disrepair — deep ruts that scare off cart traffic "
+             "and customers alike."),
+        Step("trade", "Chip in your share",
+             "You and four other shopkeepers along that road — the cloth "
+             "seller, the potter, the tea stall owner, and the grain merchant "
+             "— are each being asked to chip in toward fixing it. The repair "
+             f"is expected to cost about Rs {_ROAD_FUND_SHARE * _ROAD_FUND_N} "
+             f"total — Rs {_ROAD_FUND_SHARE} a fair share from each of you."),
+        Step("idea", "Merchant will match",
+             "A traveling merchant passing through overhears the plan and "
+             "makes an offer: whatever the five of you shopkeepers put in "
+             "together, he'll match with an equal amount from his own purse."),
+        Step("road", "Shared benefit",
+             "Whatever gets raised — your contributions plus his matching "
+             "share — pays for the repair, and the benefit of a usable road "
+             "again is split equally among all five shopkeepers, however much "
+             "each of you actually put in."),
+        Step("scale", "Your move",
+             "It's your turn to decide: how much of your own money goes "
+             "toward the road?"),
     ],
     choices=[
         EncounterChoice("free_ride", "Contribute nothing", "Keep your money — let the others cover it."),
@@ -458,23 +479,27 @@ def _resolve_stag_hunt(player_choice: str, rng: random.Random) -> EncounterOutco
 STAG_HUNT_ENCOUNTER = Encounter(
     id="stag_hunt",
     chapter_title="Chapter 3: The Cold Storage Bet",
-    setup_lines=[
-        "Your vegetable stall has been steady work, but you've heard about "
-        "a rare, high-value leafy green grown only in the hills — "
-        "delicate, and it spoils within two days unless kept properly "
-        "cold.",
-        "If you could sell it fresh, it would fetch triple what your usual "
-        "produce does. But without a cold store nearby, it would rot in "
-        "your cart before a single customer saw it.",
-        "There's a warehouse owner in town weighing whether to build a "
-        "proper cold-storage unit — a serious investment for him, and "
-        "only worth it if there's enough perishable trade in town to "
-        "justify it.",
-        "Neither of you knows what the other will decide. If you both "
-        "commit — you import, he builds — you'll both do very well. But "
-        "if only one of you commits and the other plays it safe, whoever "
-        "gambled alone takes the loss.",
-        "What do you do?",
+    setup_steps=[
+        Step("idea", "Rare opportunity",
+             "Your vegetable stall has been steady work, but you've heard about "
+             "a rare, high-value leafy green grown only in the hills — "
+             "delicate, and it spoils within two days unless kept properly "
+             "cold."),
+        Step("cold_storage", "Needs cold storage",
+             "If you could sell it fresh, it would fetch triple what your usual "
+             "produce does. But without a cold store nearby, it would rot in "
+             "your cart before a single customer saw it."),
+        Step("cold_storage", "His decision too",
+             "There's a warehouse owner in town weighing whether to build a "
+             "proper cold-storage unit — a serious investment for him, and "
+             "only worth it if there's enough perishable trade in town to "
+             "justify it."),
+        Step("question", "Mutual unknown",
+             "Neither of you knows what the other will decide. If you both "
+             "commit — you import, he builds — you'll both do very well. But "
+             "if only one of you commits and the other plays it safe, whoever "
+             "gambled alone takes the loss."),
+        Step("scale", "Your move", "What do you do?"),
     ],
     choices=[
         EncounterChoice("import_special", "Import the special greens", "Big reward if the cold storage gets built — a real loss if it doesn't."),
@@ -626,20 +651,25 @@ def _resolve_juice_stall(player_choice: str, rng: random.Random) -> EncounterOut
 JUICE_STALL_ENCOUNTER = Encounter(
     id="juice_stall",
     chapter_title="Chapter 4: The Juice Stall Standoff",
-    setup_lines=[
-        "Your stall's doing well, and you've spotted a gap in the market: "
-        "nobody's selling fresh green juice — fruit blended with leafy "
-        "greens. You could set it up within a week.",
-        "But you're not the only one who's noticed. A rival fruit vendor "
-        "across the market has been eyeing the exact same idea.",
-        "The market's only big enough to support ONE green juice stall. "
-        "If you both open, you'll flood a market that can barely support "
-        "one — and you'll both lose money undercutting each other.",
-        "If only one of you opens, that person captures the whole new "
-        "market. Whoever backs off just keeps running their stall as "
-        "usual — no loss, just no upside either.",
-        "You don't know what the rival vendor is planning. But you have "
-        "options beyond just guessing.",
+    setup_steps=[
+        Step("idea", "New idea",
+             "Your stall's doing well, and you've spotted a gap in the market: "
+             "nobody's selling fresh green juice — fruit blended with leafy "
+             "greens. You could set it up within a week."),
+        Step("standoff", "A rival, too",
+             "But you're not the only one who's noticed. A rival fruit vendor "
+             "across the market has been eyeing the exact same idea."),
+        Step("warning", "Too small for both",
+             "The market's only big enough to support ONE green juice stall. "
+             "If you both open, you'll flood a market that can barely support "
+             "one — and you'll both lose money undercutting each other."),
+        Step("standoff", "Winner takes all",
+             "If only one of you opens, that person captures the whole new "
+             "market. Whoever backs off just keeps running their stall as "
+             "usual — no loss, just no upside either."),
+        Step("question", "Your move",
+             "You don't know what the rival vendor is planning. But you have "
+             "options beyond just guessing."),
     ],
     choices=[
         EncounterChoice("open_quietly", "Quietly start setting up", "No announcement — you're hoping he doesn't have the same idea."),

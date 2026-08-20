@@ -597,6 +597,44 @@ standoff. `Encounter.chapter_icon` names which one; it's deliberately
 *not* shown during the quiz phase, since the answer buttons there span
 the full panel width and would collide with it.
 
+## The setup narration is a horizontal storyboard, not a text stack
+
+Follow-up feedback, more specific than the chapter-icon pass above: give
+*each individual statement* of a chapter's setup its own icon, laid out as
+"one box after another horizontally," not stacked paragraphs even with a
+corner icon attached. Restructures how a chapter opens:
+
+- **`Step` (new dataclass, `story_games.py`)** replaces the old
+  `setup_lines: list[str]` with `setup_steps: list[Step]`, where each
+  `Step` carries an `icon`, a short `caption` (a few words, for the
+  storyboard box) and the full `text` (the sentence shown as detail
+  underneath) — used by all four chapters. Four new icons were added to
+  `draw_icon()` to cover the new per-statement content: `idea` (lightbulb,
+  spotting an opportunity), `warning` (caution triangle, something could
+  go wrong), `question` (uncertainty about what the other side will do),
+  `scale` (a balance, the decision point) — reused alongside the existing
+  four chapter icons wherever a step is literally about that chapter's
+  theme (e.g. Chapter 3's storage steps reuse `cold_storage`).
+- **The setup phase now renders a row of boxes**, one per step, left to
+  right: reached steps show their icon and caption (the active one
+  highlighted gold, earlier ones dimmed but still visible — nothing seen
+  disappears), upcoming steps show a locked "?" placeholder, and thin
+  connector lines join them like a stepper/subway-map UI. The full
+  sentence for the *current* step renders underneath, exactly as before;
+  clicking "Next" advances both the active box and the detail text
+  together.
+- **Verified every caption actually fits** rather than assumed to: a
+  direct check (`wrap_text` against the real box width for every step in
+  every chapter) caught one caption clipping at the box's bottom edge in
+  its rendered screenshot ("Neither of you knows," Chapter 3 — wrapped to
+  a second line the original box height didn't leave room for). Fixed
+  both ways at once: reworded it shorter ("Mutual unknown") *and* grew the
+  box height to comfortably fit any two-line caption, so a future
+  chapter's longer caption can't reintroduce the same clip — the same
+  robustness lesson as the payoff-matrix label-wrapping fix earlier: size
+  the container to the content, don't assume the content will fit a
+  guessed size.
+
 ## Known limitations
 
 - Visuals are flat vector shapes, not sprite art — intentional, matches the
