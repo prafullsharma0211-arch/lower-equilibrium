@@ -11,7 +11,7 @@ FRAME_DT = 1 / 60  # simulate a 60fps loop
 
 
 def main():
-    game = GameManager(total_players=16, total_rounds=20, delay_between_rounds=0.05, seed=42)
+    game = GameManager(total_players=16, total_rounds=10, delay_between_rounds=0.05, seed=42)
 
     game.on_round_started.append(lambda r: print(f"\n--- Round {r} ---"))
     game.on_round_summary.append(

@@ -109,6 +109,40 @@ def get_zone_name(connections: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Finale payoff table — used only for the human, only during the human's
+# connections-game rounds (see GameManager.human_finale_rounds).
+#
+# The 16-step table above was built and balanced for a game where the
+# connections arc plays out over many rounds — real degrees of freedom to
+# actually reach the "Transition valley" dip or the "Eq3" peak. Compressed to
+# the human's last 2 rounds, at most 1 connection can exist by the time any
+# round's payoff is drawn from this table at all (a 2nd successful Approach in
+# the very last round only shows up in the final standings' connection count —
+# there's no round 11 for its own higher base payoff to ever pay out). Rather
+# than pretend a 3-tier trap/valley/optimum arc that the 2nd tier could never
+# actually realize as income, this is an honest 2-tier version of the same
+# underlying lesson: staying Solo is safe but flat ("Eq1 — Solo trap"), while
+# reaching out — even once — pays a real, visible premium ("Eq3 — Global
+# optimum"), both directly on the finale table AND via Approach's own
+# payoff_if_accepted, which the player collects the instant a connection
+# lands, not deferred to a future round. Bots are NOT gated by
+# story_encounter_rounds and keep using the full 16-step table for every
+# round of the game — this finale table only ever applies to the human.
+# ---------------------------------------------------------------------------
+
+_FINALE_BASE_PAYOFF = [45, 90]
+_FINALE_ZONE_NAMES = ["Eq1 — Solo trap", "Eq3 — Global optimum"]
+
+
+def get_finale_base_payoff(connections: int) -> int:
+    return _FINALE_BASE_PAYOFF[max(0, min(connections, len(_FINALE_BASE_PAYOFF) - 1))]
+
+
+def get_finale_zone_name(connections: int) -> str:
+    return _FINALE_ZONE_NAMES[max(0, min(connections, len(_FINALE_ZONE_NAMES) - 1))]
+
+
+# ---------------------------------------------------------------------------
 # Approach outcome odds — REBALANCED from the proposal's literal numbers.
 #
 # The proposal's own "Expected value" column (-0.1 / +0.4 / +0.1) doesn't
@@ -301,13 +335,21 @@ class ActionResolver:
     def __init__(self, rng: random.Random):
         self._rng = rng
 
-    def resolve_solo(self, actor: PlayerData) -> SoloResult:
-        payoff = get_base_payoff(actor.connection_count)
+    def resolve_solo(self, actor: PlayerData, finale_baseline: Optional[int] = None) -> SoloResult:
+        # finale_baseline: connections the human had when the finale began
+        # (see GameManager._finale_baseline_connections) — not None means
+        # "use the finale table, keyed off connections gained SINCE then,"
+        # not the actor's raw lifetime count (which can include connections
+        # bots formed with the human incidentally during the story rounds).
+        if finale_baseline is None:
+            payoff = get_base_payoff(actor.connection_count)
+        else:
+            payoff = get_finale_base_payoff(actor.connection_count - finale_baseline)
         actor.points += payoff
         job = self._rng.choice(list(JobType))
         return SoloResult(actor=actor, points_earned=payoff, job=job)
 
-    def resolve_approach(self, actor: PlayerData, target: PlayerData, event_bonus: bool = False) -> ApproachResult:
+    def resolve_approach(self, actor: PlayerData, target: PlayerData, event_bonus: bool = False, finale_baseline: Optional[int] = None) -> ApproachResult:
         relationship = get_relationship(actor.skill, target.skill)
         base_odds = get_odds(relationship)
         style_mod = get_risk_style_modifier(actor.risk_style)
@@ -337,7 +379,11 @@ class ActionResolver:
         # anything Approach could realistically win back, which was the
         # single biggest reason pure Solo dominated in simulation (see the
         # rebalancing notes above _BASE_PAYOFF and _ODDS).
-        points_delta = get_base_payoff(actor.connection_count) - cost
+        if finale_baseline is None:
+            base = get_base_payoff(actor.connection_count)
+        else:
+            base = get_finale_base_payoff(actor.connection_count - finale_baseline)
+        points_delta = base - cost
         burnout_triggered = False
 
         if outcome == ApproachOutcome.ACCEPT:
@@ -364,10 +410,13 @@ class ActionResolver:
             burnout_triggered=burnout_triggered,
         )
 
-    def resolve_intelligence(self, querier: PlayerData, target: PlayerData) -> IntelligenceResult:
+    def resolve_intelligence(self, querier: PlayerData, target: PlayerData, finale_baseline: Optional[int] = None) -> IntelligenceResult:
         querier.points -= INTELLIGENCE_COST
         # "Can be combined with SOLO — you still earn base payoff."
-        querier.points += get_base_payoff(querier.connection_count)
+        if finale_baseline is None:
+            querier.points += get_base_payoff(querier.connection_count)
+        else:
+            querier.points += get_finale_base_payoff(querier.connection_count - finale_baseline)
 
         data_point_type = self._rng.choice(["skill", "points", "connections", "burnout"])
         if data_point_type == "skill":
@@ -464,7 +513,7 @@ class GameManager:
     def __init__(
         self,
         total_players: int = 16,
-        total_rounds: int = 20,
+        total_rounds: int = 10,
         human_name: str = "You",
         human_risk_style: "RiskStyle" = RiskStyle.BALANCED,
         delay_between_rounds: float = 1.0,
@@ -477,21 +526,46 @@ class GameManager:
         self.is_game_over = False
         self.paused = False
         self.awaiting_human = False
-        # One-time scripted mid-game novelty beat (Flow trigger) — see
-        # ActionResolver.resolve_approach's event_bonus handling.
-        self.special_event_round = max(1, total_rounds // 2)
         # round_num -> encounter id (see story_games.py). Replaces that
         # round's normal action entirely with a scripted game-theory
         # scenario — this is "his journey," not a simulated village day.
-        # Chapters 1-4 open the game back-to-back at rounds 1-4 by design:
-        # the player should meet the story before the repetitive village
-        # loop, not after several ordinary rounds of it.
+        # Chapters 1-8 open the game back-to-back at rounds 1-8 by design:
+        # the player should meet the whole story arc before the connections
+        # game (now just its final 2 rounds), not scattered through it.
         self.story_encounter_rounds: dict = story_encounter_rounds or {
             1: "quality_price",
             min(2, total_rounds): "road_fund",
             min(3, total_rounds): "stag_hunt",
             min(4, total_rounds): "juice_stall",
+            min(5, total_rounds): "centipede",
+            min(6, total_rounds): "iterated_pd",
+            min(7, total_rounds): "lemons_market",
+            min(8, total_rounds): "goat_signal",
         }
+        # The human's connections-game rounds are whatever's left over once
+        # the story chapters claim their rounds — with the default 10-round
+        # game that's just rounds 9-10. Bots aren't gated by
+        # story_encounter_rounds (see _run_game_loop) and play every round
+        # normally, so this set only ever affects the human's own payoff —
+        # see ActionResolver's finale-table branch below.
+        self.human_finale_rounds: set = set(range(1, total_rounds + 1)) - set(self.story_encounter_rounds.keys())
+        # Bots keep approaching everyone, including the human, all through
+        # the story rounds (see _run_game_loop) — so the human can arrive
+        # at the finale already holding a connection or two just from being
+        # on the receiving end of a bot's Approach, never having taken an
+        # action themselves. Captured once, the first finale round begins,
+        # so the finale table (see ActionResolver) reads off connections
+        # actually built DURING the finale, not lifetime connections —
+        # otherwise a player could start "Eq3 — Global optimum" for free,
+        # before ever making a finale decision.
+        self._finale_baseline_connections: Optional[int] = None
+        # One-time scripted mid-game novelty beat (Flow trigger) — see
+        # ActionResolver.resolve_approach's event_bonus handling. Used to be
+        # total_rounds // 2, but that now lands mid-story (a round with no
+        # Approach actions at all, human or otherwise malformed) — pin it to
+        # the second-to-last round instead, so it still fires with one round
+        # left to feel its effect.
+        self.special_event_round = max(1, total_rounds - 1)
         self._pending_encounter_id: str = ""
         self._pending_encounter_points: int = 0
 
@@ -543,6 +617,16 @@ class GameManager:
 
     def get_other_players(self) -> list:
         return [p for p in self.players if p.id != self.human.id]
+
+    def human_finale_connections(self) -> int:
+        """Connections the human has actually built SINCE the finale began
+        — what the finale payoff table and its zone label are keyed off,
+        not raw lifetime connection_count (see _finale_baseline_connections
+        and ActionResolver's finale_baseline handling). 0 before the finale
+        starts, since the baseline isn't captured yet."""
+        if self._finale_baseline_connections is None:
+            return 0
+        return self.human.connection_count - self._finale_baseline_connections
 
     def submit_solo(self) -> None:
         if not self.awaiting_human:
@@ -605,6 +689,8 @@ class GameManager:
                 yield
 
             self.current_round = round_num
+            if round_num in self.human_finale_rounds and self._finale_baseline_connections is None:
+                self._finale_baseline_connections = self.human.connection_count
             for cb in self.on_round_started:
                 cb(round_num)
 
@@ -651,8 +737,10 @@ class GameManager:
     def _resolve_human_action(self, events: list) -> None:
         action = self._human_action
 
+        finale_baseline = self._finale_baseline_connections if self.current_round in self.human_finale_rounds else None
+
         if action == ActionType.SOLO:
-            result = self._resolver.resolve_solo(self.human)
+            result = self._resolver.resolve_solo(self.human, finale_baseline=finale_baseline)
             events.append({
                 "actor": self.human.name, "action": "Solo",
                 "summary": f"{result.job.name}: earned {result.points_earned} pts",
@@ -667,7 +755,8 @@ class GameManager:
             if target is None:
                 return
             result = self._resolver.resolve_approach(
-                self.human, target, event_bonus=(self.current_round == self.special_event_round)
+                self.human, target, event_bonus=(self.current_round == self.special_event_round),
+                finale_baseline=finale_baseline,
             )
             events.append({
                 "actor": self.human.name, "action": "Approach",
@@ -682,7 +771,7 @@ class GameManager:
             target = self._find_player(self._human_target_id)
             if target is None:
                 return
-            result = self._resolver.resolve_intelligence(self.human, target)
+            result = self._resolver.resolve_intelligence(self.human, target, finale_baseline=finale_baseline)
             events.append({
                 "actor": self.human.name, "action": "Intelligence",
                 "summary": f"scouted {target.name}'s {result.data_point_type}",

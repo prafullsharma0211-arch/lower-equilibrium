@@ -17,7 +17,7 @@ import pygame
 import save_data
 from achievements import ACHIEVEMENTS, AchievementTracker
 from facilitator import FacilitatorClient, parse_dialogue
-from story_games import STORY_ENCOUNTERS
+from story_games import STORY_ENCOUNTERS, CENTIPEDE_PLAYER_POTS
 from game_logic import (
     ActionType,
     ApproachOutcome,
@@ -30,6 +30,7 @@ from game_logic import (
     SoloResult,
     STARTING_MONEY,
     get_zone_name,
+    get_finale_zone_name,
 )
 
 WIDTH, HEIGHT = 1100, 720
@@ -85,14 +86,15 @@ ACTION_TOOLTIPS = {
 # without solving the game for you.
 HELP_PAGES = [
     ("Welcome", "solo", [
-        "You're an entrepreneur in a small village, trying to grow your "
-        "network over 20 rounds.",
-        "Every round, you and 15 other villagers each quietly make one "
-        "move. Then the round resolves and the next begins.",
-        f"You start with Rs {STARTING_MONEY}. Goal: end Round 20 with the most money.",
-        "A few rounds along the way are turning points in your journey — "
-        "real business decisions that play out on their own screen, with "
-        "the reasoning explained once you've made your choice.",
+        "You're an entrepreneur in a small village, building a business "
+        "over 10 rounds.",
+        "The first 8 rounds are turning points in your journey — real "
+        "business decisions that play out on their own screen, with the "
+        "reasoning explained once you've made your choice.",
+        "The last 2 rounds, you and 15 other villagers each quietly make "
+        "one move to grow your network. Then the round resolves and the "
+        "next begins.",
+        f"You start with Rs {STARTING_MONEY}. Goal: end Round 10 with the most money.",
     ]),
     ("Your three moves", "approach", [
         "Solo — work your own business. Safe, steady income.",
@@ -273,6 +275,61 @@ def draw_icon(surface, name, center, scale=1.0):
         base = pygame.Rect(0, 0, 10 * scale, 3 * scale)
         base.center = (x, y + 8 * scale)
         pygame.draw.rect(surface, (150, 150, 160), base, border_radius=1)
+    elif name == "cycle":
+        # two curved arrows chasing each other — repeat dealings, not a
+        # one-off (Chapter 6: the same supplier, many rounds this time)
+        r = 9 * scale
+        rect = pygame.Rect(0, 0, r * 2, r * 2)
+        rect.center = (x, y)
+        width = max(2, round(2.2 * scale))
+        pygame.draw.arc(surface, (140, 200, 140), rect, math.radians(20), math.radians(160), width)
+        pygame.draw.arc(surface, (140, 200, 140), rect, math.radians(200), math.radians(340), width)
+        head1 = (x + r * math.cos(math.radians(160)), y - r * math.sin(math.radians(160)))
+        tip1 = [
+            (head1[0] - 5 * scale, head1[1] - 2 * scale),
+            (head1[0] + 1 * scale, head1[1] - 6 * scale),
+            (head1[0] + 3 * scale, head1[1] + 2 * scale),
+        ]
+        pygame.draw.polygon(surface, (140, 200, 140), tip1)
+        head2 = (x + r * math.cos(math.radians(340)), y - r * math.sin(math.radians(340)))
+        tip2 = [
+            (head2[0] + 5 * scale, head2[1] + 2 * scale),
+            (head2[0] - 1 * scale, head2[1] + 6 * scale),
+            (head2[0] - 3 * scale, head2[1] - 2 * scale),
+        ]
+        pygame.draw.polygon(surface, (140, 200, 140), tip2)
+    elif name == "lemon":
+        # a literal lemon — Chapter 7's "Market for Lemons" is named for
+        # exactly this pun (a "lemon" = a bad deal that looked fine going in)
+        body = pygame.Rect(0, 0, 18 * scale, 13 * scale)
+        body.center = (x, y)
+        pygame.draw.ellipse(surface, (230, 210, 60), body)
+        pygame.draw.ellipse(surface, (150, 130, 20), body, max(1, round(scale)))
+        for tx, ty in ((body.left - 1 * scale, y), (body.right + 1 * scale, y)):
+            pygame.draw.circle(surface, (200, 180, 40), (tx, ty), 2 * scale)
+        leaf = pygame.Rect(0, 0, 8 * scale, 5 * scale)
+        leaf.center = (x, body.top - 2 * scale)
+        pygame.draw.ellipse(surface, (89, 191, 102), leaf)
+        pygame.draw.ellipse(surface, (50, 120, 60), leaf, max(1, round(scale)))
+    elif name == "pot":
+        # a growing pile of coins — Chapter 5's pot, doubling each pass
+        for i, (dy, w) in enumerate(((6, 20), (0, 15), (-6, 10))):
+            coin = pygame.Rect(0, 0, w * scale, 6 * scale)
+            coin.center = (x, y + dy * scale)
+            pygame.draw.ellipse(surface, (230, 200, 60), coin)
+            pygame.draw.ellipse(surface, (150, 120, 30), coin, max(1, round(scale)))
+    elif name == "certificate":
+        # a stamped document — Chapter 8's costly, verifiable signal
+        card = pygame.Rect(0, 0, 18 * scale, 14 * scale)
+        card.center = (x - 2 * scale, y)
+        pygame.draw.rect(surface, (240, 236, 220), card, border_radius=1)
+        pygame.draw.rect(surface, (120, 110, 90), card, max(1, round(scale)), border_radius=1)
+        for i in range(3):
+            ly = card.top + 4 * scale + i * 3 * scale
+            pygame.draw.line(surface, (150, 140, 120), (card.left + 3 * scale, ly), (card.right - 6 * scale, ly), max(1, round(scale)))
+        seal = (card.right - 1 * scale, card.bottom - 1 * scale)
+        pygame.draw.circle(surface, (200, 60, 60), seal, 5 * scale)
+        pygame.draw.circle(surface, (120, 30, 30), seal, 5 * scale, max(1, round(scale)))
 
 
 def draw_person(surface, pos, color, scale=1.0, bob=0.0, outline=(20, 20, 20), facing=0):
@@ -479,7 +536,7 @@ class App:
         # behavior isn't part of what test_logic.py needs to be deterministic.
         self._encounter_rng = random.Random()
         self.current_encounter = None
-        self.encounter_phase = None  # "setup" | "choice" | "result" | "quiz" | "lesson"
+        self.encounter_phase = None  # "setup" | "choice" | "result" | "quiz" | "lesson" | "summary"
         self.encounter_outcome = None
         self.encounter_quiz_correct = None
         self.encounter_lesson_page = 0
@@ -553,7 +610,7 @@ class App:
 
     def _start_game(self, style: RiskStyle):
         self.game = GameManager(
-            total_players=16, total_rounds=20, human_risk_style=style, delay_between_rounds=1.2,
+            total_players=16, total_rounds=10, human_risk_style=style, delay_between_rounds=1.2,
         )
         self.game.on_round_started.append(self._on_round_started)
         self.game.on_human_state_changed.append(self._on_human_state_changed)
@@ -713,7 +770,16 @@ class App:
     def _on_human_state_changed(self, human):
         self.points_text = f"Money: Rs {human.points}"
         self.connections_text = f"Connections: {human.connection_count}"
-        self.zone_text = get_zone_name(human.connection_count)
+        # The finale (rounds 9-10) uses its own compressed zone table (see
+        # GameManager.human_finale_rounds / get_finale_zone_name) so the
+        # HUD's zone label matches the payoff the player is actually
+        # earning there — the global 16-step table would still say
+        # "Rising" at 1 connection, when the finale table is already
+        # paying out its "Eq3 — Global optimum" rate at that point.
+        if self.game.current_round in self.game.human_finale_rounds:
+            self.zone_text = get_finale_zone_name(self.game.human_finale_connections())
+        else:
+            self.zone_text = get_zone_name(human.connection_count)
 
         standings = sorted(self.game.players, key=lambda p: p.points, reverse=True)
         rank = next(i for i, p in enumerate(standings, start=1) if p.is_human)
@@ -846,10 +912,64 @@ class App:
         self.encounter_phase = "choice"
 
     def _encounter_choose(self, choice):
-        self.encounter_outcome = self.current_encounter.resolve(choice.id, self._encounter_rng)
+        self._encounter_resolve_choice(choice.id)
+
+    def _encounter_resolve_choice(self, choice_id: str):
+        # Shared by every chapter's terminal decision — including Chapter
+        # 5's centipede chain, which walks through several sequential
+        # sub-phases (see _draw_centipede_step) before finally landing on
+        # one of these choice ids, instead of picking one EncounterChoice
+        # from a single list like every other chapter does.
+        self.encounter_outcome = self.current_encounter.resolve(choice_id, self._encounter_rng)
         self.game.submit_story_encounter(self.encounter_outcome.player_payoff, self.current_encounter.id)
         self.encounter_phase = "result"
         self.encounter_line_index = 0
+
+    # Chapter 5's centipede chain — 3 sequential player decisions instead
+    # of the single choice every other chapter uses. Rather than a generic
+    # multi-turn engine, this is deliberately hardcoded to this one
+    # chapter's shape (see story_games.py's CENTIPEDE_PLAYER_POTS/
+    # CENTIPEDE_FINAL_POT, which this mirrors): the NPC always lets it ride
+    # on its first two turns and always takes everything on its third, so
+    # there are exactly 4 possible endings, matching story_games.py's
+    # "take1" / "pass_take3" / "pass_pass_take5" / "pass_pass_pass".
+    def _encounter_centipede_take(self, step: int):
+        self._encounter_resolve_choice(("take1", "pass_take3", "pass_pass_take5")[step - 1])
+
+    def _encounter_centipede_pass(self, step: int):
+        if step < 3:
+            self.encounter_phase = f"choice{step + 1}"  # step 1 -> "choice2", step 2 -> "choice3"
+        else:
+            self._encounter_resolve_choice("pass_pass_pass")
+
+    def _draw_centipede_step(self, surface, panel, y, content_w, step: int):
+        pot = CENTIPEDE_PLAYER_POTS[step - 1]
+        if step == 1:
+            prompt_text = "What do you do?"
+        else:
+            prev_pot = CENTIPEDE_PLAYER_POTS[step - 2]
+            prompt_text = f"He lets it ride too — the pot's now Rs {pot}, up from Rs {prev_pot}. What do you do?"
+        for wline in wrap_text(prompt_text, self.font_encounter, content_w):
+            surf = self.font_encounter.render(wline, True, COLOR_TEXT)
+            surface.blit(surf, (panel.left + 24, y))
+            y += 32
+        y += 16
+
+        rect = self._encounter_choice_button_rect(
+            panel.left + 24, y, content_w, "Take it", "Walk away with it right now — guaranteed.",
+        )
+        self._encounter_button(surface, rect, f"Take Rs {pot}", lambda: self._encounter_centipede_take(step),
+                                "Walk away with it right now — guaranteed.")
+        y = rect.bottom + 14
+
+        next_pot = pot * 2
+        pass_detail = (
+            f"Let the pot double to Rs {next_pot} — if he doesn't grab it first."
+            if step < 3 else
+            f"Let the pot double to Rs {next_pot} — but this is his last turn too, and if he takes it, you get nothing."
+        )
+        rect2 = self._encounter_choice_button_rect(panel.left + 24, y, content_w, "Push your luck", pass_detail)
+        self._encounter_button(surface, rect2, "Push your luck (pass)", lambda: self._encounter_centipede_pass(step), pass_detail)
 
     def _encounter_to_quiz(self):
         self.encounter_phase = "quiz"
@@ -865,7 +985,7 @@ class App:
             self.encounter_lesson_page += 1
             self.encounter_line_index = 0
         else:
-            self._encounter_finish()
+            self.encounter_phase = "summary"
 
     # Reveal narrative/lesson text one line at a time instead of dumping a
     # whole paragraph block at once — direct feedback: "make the initial
@@ -1150,9 +1270,24 @@ class App:
         ty = rect.top + 8 if sub_label else rect.centery - text.get_height() // 2
         surface.blit(text, (rect.left + 16, ty))
         if sub_label:
-            sub = self.font_encounter_small.render(sub_label, True, (225, 232, 245))
-            surface.blit(sub, (rect.left + 16, rect.top + 36))
+            # Wrapped, not a single unbounded line — a long enough detail
+            # (Chapter 6's "forgive a single slip" choice) ran straight off
+            # the panel's right edge instead of clipping to the button.
+            # See _encounter_choice_button_rect, which sizes the button's
+            # height to match how many lines this wraps to.
+            sy = rect.top + 36
+            for wline in wrap_text(sub_label, self.font_encounter_small, rect.width - 32):
+                sub = self.font_encounter_small.render(wline, True, (225, 232, 245))
+                surface.blit(sub, (rect.left + 16, sy))
+                sy += 20
         self._encounter_buttons.append((rect, callback))
+
+    def _encounter_choice_button_rect(self, left, top, width, label, detail):
+        """Height a choice button needs to fit its (possibly multi-line)
+        detail text without clipping or overflowing past the panel edge."""
+        detail_lines = wrap_text(detail, self.font_encounter_small, width - 32) if detail else []
+        height = max(68, 44 + 20 * max(1, len(detail_lines)))
+        return pygame.Rect(left, top, width, height)
 
     def _encounter_can_go_back(self) -> bool:
         # A choice, once made, has already been submitted to the game
@@ -1162,11 +1297,11 @@ class App:
         # the outcome is known.
         if self.encounter_phase == "setup":
             return self.encounter_line_index > 0
-        if self.encounter_phase == "choice":
+        if self.encounter_phase in ("choice", "choice2", "choice3"):
             return True
         if self.encounter_phase == "result":
             return self.encounter_line_index > 0
-        if self.encounter_phase in ("quiz", "lesson"):
+        if self.encounter_phase in ("quiz", "lesson", "summary"):
             return True
         return False
 
@@ -1174,6 +1309,10 @@ class App:
         enc = self.current_encounter
         if self.encounter_phase == "setup" and self.encounter_line_index > 0:
             self.encounter_line_index -= 1
+        elif self.encounter_phase == "choice3":
+            self.encounter_phase = "choice2"
+        elif self.encounter_phase == "choice2":
+            self.encounter_phase = "choice"
         elif self.encounter_phase == "choice":
             self.encounter_phase = "setup"
             self.encounter_line_index = len(enc.setup_steps) - 1
@@ -1188,6 +1327,10 @@ class App:
                 self.encounter_line_index = len(enc.lesson_pages[self.encounter_lesson_page].lines) - 1
             else:
                 self.encounter_phase = "quiz"
+        elif self.encounter_phase == "summary":
+            self.encounter_phase = "lesson"
+            self.encounter_lesson_page = len(enc.lesson_pages) - 1
+            self.encounter_line_index = len(enc.lesson_pages[self.encounter_lesson_page].lines) - 1
 
     def _draw_encounter_back_button(self, surface, panel):
         enabled = self._encounter_can_go_back()
@@ -1218,14 +1361,25 @@ class App:
         other players into one "column" would misrepresent their own
         incentives, so only the player's own payoff is shown per cell)."""
         x0, y0 = top_left
-        label_w, cell_w = 180, 160
+        cell_w = 160
         line_h = 19
+
+        # The vertical row_label ("You", "Your offer", ...) sits in a
+        # gutter to the left of the row-option boxes — sized to the actual
+        # rendered label instead of a fixed 36px, which was only ever wide
+        # enough for one-word labels. Chapter 7's two-word "Your offer"
+        # overflowed that fixed gutter and got painted over by the row
+        # boxes drawn after it — same "size the container to the content"
+        # lesson as the row/column option wrapping just below.
+        row_title = self.font_encounter_small.render(matrix.row_label, True, (230, 179, 51))
+        gutter_w = max(36, row_title.get_width() + 16)
+        label_w = 144 + gutter_w
 
         # Wrap labels instead of assuming they fit — a longer row/column
         # label (Chapter 2's ran past its cell and got silently painted
         # over by the next column) shouldn't be able to corrupt the
         # layout; row/column height grows to fit whatever's longest.
-        row_lines = [wrap_text(opt, self.font_encounter_small, label_w - 36 - 12) or [opt] for opt in matrix.row_options]
+        row_lines = [wrap_text(opt, self.font_encounter_small, label_w - gutter_w - 12) or [opt] for opt in matrix.row_options]
         col_lines = [wrap_text(opt, self.font_encounter_small, cell_w - 12) or [opt] for opt in matrix.col_options]
         cell_h = max(44, line_h * max(len(lines) for lines in row_lines) + 16)
         header_h = max(28, line_h * max(len(lines) for lines in col_lines) + 10)
@@ -1248,12 +1402,11 @@ class App:
             pygame.draw.rect(surface, (85, 85, 98), rect, 1)
             _blit_centered_block(lines, rect.centerx, rect.centery)
 
-        row_title = self.font_encounter_small.render(matrix.row_label, True, (230, 179, 51))
         surface.blit(row_title, (x0, y0 + header_h + (cell_h * len(matrix.row_options)) // 2 - row_title.get_height() // 2))
 
         for i, lines in enumerate(row_lines):
             row_y = y0 + header_h + i * cell_h
-            row_rect = pygame.Rect(x0 + 36, row_y, label_w - 36, cell_h)
+            row_rect = pygame.Rect(x0 + gutter_w, row_y, label_w - gutter_w, cell_h)
             pygame.draw.rect(surface, (42, 42, 54), row_rect)
             pygame.draw.rect(surface, (85, 85, 98), row_rect, 1)
             # left-aligned, unlike the centered helper — row labels read
@@ -1350,14 +1503,18 @@ class App:
             btn = pygame.Rect(panel.right - 150, panel.bottom - 60, 126, 44)
             self._encounter_button(surface, btn, label, advance)
 
+        elif self.encounter_phase in ("choice", "choice2", "choice3") and enc.kind == "centipede":
+            step = {"choice": 1, "choice2": 2, "choice3": 3}[self.encounter_phase]
+            self._draw_centipede_step(surface, panel, y, content_w, step)
+
         elif self.encounter_phase == "choice":
             prompt = self.font_encounter.render("What do you do?", True, COLOR_TEXT)
             surface.blit(prompt, (panel.left + 24, y))
             y += 48
             for choice in enc.choices:
-                rect = pygame.Rect(panel.left + 24, y, content_w, 68)
+                rect = self._encounter_choice_button_rect(panel.left + 24, y, content_w, choice.label, choice.detail)
                 self._encounter_button(surface, rect, choice.label, lambda c=choice: self._encounter_choose(c), choice.detail)
-                y += 82
+                y = rect.bottom + 14
 
         elif self.encounter_phase == "result":
             all_shown = self.encounter_line_index >= len(self.encounter_outcome.result_lines) - 1
@@ -1430,6 +1587,28 @@ class App:
                 f"{self.encounter_lesson_page + 1} / {len(enc.lesson_pages)}", True, COLOR_TEXT_DIM,
             )
             surface.blit(page_label, (panel.left + 24, btn.centery - page_label.get_height() // 2))
+
+        elif self.encounter_phase == "summary":
+            payoff = self.encounter_outcome.player_payoff
+            payoff_color = (140, 220, 140) if payoff >= 0 else (230, 120, 120)
+
+            header = self.font_encounter.render("Chapter complete", True, COLOR_TEXT)
+            surface.blit(header, (panel.left + 24, y))
+            y += 56
+
+            delta_label = self.font_encounter_small.render("This chapter:", True, COLOR_TEXT_DIM)
+            surface.blit(delta_label, (panel.left + 24, y))
+            delta_value = self.font_big.render(f"{payoff:+d} rupees", True, payoff_color)
+            surface.blit(delta_value, (panel.left + 24, y + 26))
+            y += 90
+
+            total_label = self.font_encounter_small.render("Your money now:", True, COLOR_TEXT_DIM)
+            surface.blit(total_label, (panel.left + 24, y))
+            total_value = self.font_big.render(f"Rs {self.game.human.points}", True, (230, 179, 51))
+            surface.blit(total_value, (panel.left + 24, y + 26))
+
+            btn = pygame.Rect(panel.right - 260, panel.bottom - 60, 236, 44)
+            self._encounter_button(surface, btn, "Continue your journey", self._encounter_finish)
 
     # ------------------------------------------------------------------
     # Rendering — Home

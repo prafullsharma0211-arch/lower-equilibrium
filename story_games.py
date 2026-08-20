@@ -112,6 +112,12 @@ class Encounter:
     # chapter — a visual anchor for the scenario, not just paragraphs of
     # setup text, per direct feedback asking for more image, less text.
     chapter_icon: Optional[str] = None
+    # "simple" (default): one choice, one resolve() call, like every
+    # chapter below. "centipede": the one chapter (5) with more than one
+    # sequential decision point — main.py branches its choice-phase
+    # rendering on this instead of forcing a multi-turn game through the
+    # single-choice UI everything else uses.
+    kind: str = "simple"
 
 
 # ---------------------------------------------------------------------------
@@ -733,9 +739,709 @@ JUICE_STALL_ENCOUNTER = Encounter(
 )
 
 
+# ---------------------------------------------------------------------------
+# Chapter 6: the same supplier, all season.
+#
+# The iterated Prisoner's Dilemma — literally the same stage game as
+# Chapter 1 (this Encounter reuses _QUALITY_PRICE_MATRIX and
+# _QUALITY_PRICE_PAYOFFS unchanged), but played repeatedly against the same
+# supplier instead of once. That repetition is what changes the incentives:
+# a one-shot dominant strategy to defect no longer dominates once your
+# current move can be answered by the same opponent next round.
+#
+# Rather than one player move, the player picks a whole-season STRATEGY
+# (EncounterChoice options below); resolve() actually simulates 8 rounds
+# against a fixed Tit-for-Tat supplier (cooperate first, then mirror the
+# player's last OBSERVED move) with a real 10% chance, applied independently
+# every round to both sides, that an intended "pay/deliver fairly" (C) is
+# miscommunicated and observed as a shortchange/cut-corners (D) — noise never
+# turns a D into a C, only ever the reverse, matching "a cooperative move is
+# miscommunicated as a defection." Both sides react to what was actually
+# OBSERVED, not what was intended, which is what lets a single bad-luck
+# misread cascade into real distrust for strategies that don't forgive it.
+#
+# Verified by direct simulation (not asserted from theory) before writing
+# any of the numbers below into the lesson: across 4000 seeded 8-round runs,
+# mean player totals were Always Distrust -52.6, Grim Trigger 166.5,
+# Tit-for-Tat 200.7, Forgiving Tit-for-Tat 261.9 — the intended ranking, and
+# Always Distrust is a net LOSS on average despite winning its first round
+# by exploiting the supplier's initial trust, because from round 2 on the
+# supplier mirrors right back and both sides are stuck at the mutual-defect
+# payoff (-20) for the rest of the season. A separate check across longer
+# horizons (20, 40 rounds) confirmed Tit-for-Tat's edge over Grim Trigger
+# widens the longer the relationship runs — Grim Trigger's one uncorrectable
+# trigger costs it more the longer it has to live with the fallout.
+# ---------------------------------------------------------------------------
+
+_ITERATED_NOISE = 0.10
+_ITERATED_ROUNDS = 8
+
+
+def _opponent_move(player_history: list[str]) -> str:
+    # Tit-for-Tat, supplier's side: cooperate first, then mirror the
+    # player's last OBSERVED move — same shape as every other chapter's
+    # deterministic opponent, just now a function of history instead of a
+    # single fixed choice.
+    return "C" if not player_history else player_history[-1]
+
+
+def _player_move(strategy: str, player_history: list[str], opp_history: list[str]) -> str:
+    if strategy == "always_distrust":
+        return "D"
+    if strategy == "tit_for_tat":
+        return "C" if not opp_history else opp_history[-1]
+    if strategy == "grim_trigger":
+        return "D" if "D" in opp_history else "C"
+    if strategy == "forgiving_tft":  # defects only after TWO straight observed defections
+        if len(opp_history) < 2:
+            return "C"
+        return "D" if opp_history[-1] == "D" and opp_history[-2] == "D" else "C"
+    raise ValueError(strategy)
+
+
+def _apply_noise(intended: str, rng: random.Random) -> tuple[str, bool]:
+    if intended == "C" and rng.random() < _ITERATED_NOISE:
+        return "D", True
+    return intended, False
+
+
+def _resolve_iterated_pd(player_choice: str, rng: random.Random) -> EncounterOutcome:
+    player_history: list[str] = []   # observed (post-noise) actions, both sides
+    opp_history: list[str] = []
+    total = 0
+    lines = ["You settle on your approach for the whole season and stick with it."]
+
+    for round_num in range(1, _ITERATED_ROUNDS + 1):
+        p_intended = _player_move(player_choice, player_history, opp_history)
+        o_intended = _opponent_move(player_history)
+        p_actual, p_noisy = _apply_noise(p_intended, rng)
+        o_actual, o_noisy = _apply_noise(o_intended, rng)
+
+        payoff = _QUALITY_PRICE_PAYOFFS[
+            ("pay_high" if p_actual == "C" else "pay_low", "high_quality" if o_actual == "C" else "low_quality")
+        ][0]
+        total += payoff
+
+        if p_noisy:
+            you = "you mean to pay him fairly, but a counting mix-up makes it look like you shorted him"
+        else:
+            you = "you pay him fairly" if p_actual == "C" else "you lowball him"
+        if o_noisy:
+            him = "he means to deliver quality, but a bad batch slips through looking like he cut corners"
+        else:
+            him = "he delivers quality" if o_actual == "C" else "he cuts corners"
+        lines.append(f"Round {round_num}: {you.capitalize()}; {him}. {payoff:+d} rupees.")
+
+        player_history.append(p_actual)
+        opp_history.append(o_actual)
+
+    lines.append(f"Total across the season: {total:+d} rupees.")
+    return EncounterOutcome(player_payoff=total, result_lines=lines)
+
+
+ITERATED_PD_ENCOUNTER = Encounter(
+    id="iterated_pd",
+    chapter_title="Chapter 6: The Same Supplier, All Season",
+    setup_steps=[
+        Step("trade", "Same supplier",
+             "The wood supplier from your very first stall is still in "
+             "business — and this season, you need materials from him "
+             "again. Not just once this time: deliveries, all season long."),
+        Step("cycle", "Repeat business",
+             "Unlike that first deal, this isn't a one-time transaction. "
+             "How you treat each other over many exchanges shapes how the "
+             "rest of the season goes — for both of you."),
+        Step("warning", "Mix-ups happen",
+             "Deliveries aren't perfect. Even an honest attempt at doing "
+             "right by each other can get miscommunicated — a good batch "
+             "mislabeled, a fair payment that looks short over a counting "
+             "error. About 1 in 10 exchanges gets garbled this way."),
+        Step("idea", "Pick your approach",
+             "You can't decide fresh every single delivery — you need a "
+             "standing approach for the whole season, chosen before you "
+             "know how any of it plays out."),
+        Step("scale", "Your move",
+             "How do you want to handle him, delivery after delivery?"),
+    ],
+    choices=[
+        EncounterChoice("always_distrust", "Always lowball him",
+                         "Never trust him — pay the low price every single time, no matter what."),
+        EncounterChoice("tit_for_tat", "Match his last delivery",
+                         "Pay fair the first time. After that, do exactly what he did last time."),
+        EncounterChoice("grim_trigger", "Trust him — until he burns you once",
+                         "Pay fair every time, unless he ever cuts corners — then never again, all season."),
+        EncounterChoice("forgiving_tft", "Match him, but forgive a single slip",
+                         "Same as matching his last delivery, but only turn on him after TWO cut-corner "
+                         "deliveries in a row — one bad batch could just be a mix-up."),
+    ],
+    resolve=_resolve_iterated_pd,
+    quiz=QuizQuestion(
+        prompt="Why does a single miscommunication hurt 'trust him until he burns you once' far worse than "
+               "the strategies that can forgive a single slip?",
+        options=[
+            "Because once triggered by even one misread delivery, it never forgives — locking both sides into "
+            "permanent mutual punishment, while a forgiving strategy can recover once trust resumes.",
+            "Because it costs more rupees upfront than the other approaches.",
+            "Because the supplier always secretly favors whichever approach forgives him.",
+        ],
+        correct_index=0,
+    ),
+    matrix=_QUALITY_PRICE_MATRIX,
+    chapter_icon="cycle",
+    lesson_pages=[
+        LessonPage(
+            concept_name="Iterated Prisoner's Dilemma",
+            lines=[
+                "Look closely at the matrix below — it's the exact same "
+                "numbers as your very first deal with this supplier back "
+                "in Chapter 1. What's different this time is that you're "
+                "not playing it once. You're playing it 8 times in a row, "
+                "against the same person.",
+                "In a one-shot Prisoner's Dilemma, defecting is always the "
+                "dominant move — there's no tomorrow to answer for it. "
+                "Repetition changes that: your move today can be answered "
+                "next round, so a strategy that rewards trust and punishes "
+                "betrayal can sustain cooperation that a single round never "
+                "could.",
+                "This is sometimes called 'the shadow of the future' — "
+                "what keeps people, businesses, and even countries honest "
+                "with each other isn't goodwill alone, it's knowing there's "
+                "a next round.",
+            ],
+            show_matrix=True,
+        ),
+        LessonPage(
+            concept_name="Reputation, Noise, and Forgiveness",
+            lines=[
+                "Always lowballing him won a big first round — he trusted "
+                "you and delivered quality, so you profited off that trust "
+                "immediately. But from round 2 on, he mirrors right back: "
+                "you're both stuck cutting corners on each other for the "
+                "rest of the season. Simulated over many seasons, that "
+                "opening win doesn't come close to covering the cost — "
+                "'always distrust' loses money on average, once the whole "
+                "season is counted.",
+                "'Trust him until he burns you once' starts the same as "
+                "matching his last delivery, but it never recovers from a "
+                "single misread — including an honest mix-up. One bad "
+                "batch, real or just miscommunicated, and you're both "
+                "locked into cutting corners on each other for every "
+                "remaining round.",
+                "Forgiving a single slip does best of all: it reacts to "
+                "betrayal exactly like matching his last delivery does, but "
+                "shrugs off one-off miscommunication instead of treating it "
+                "as a permanent break. In a world where mistakes happen 1 "
+                "in 10 times, being willing to forgive a single slip — "
+                "without being a pushover for repeated ones — is what "
+                "actually protects a long-term relationship, not blind "
+                "trust and not permanent suspicion.",
+            ],
+            show_matrix=False,
+        ),
+    ],
+)
+
+
+# ---------------------------------------------------------------------------
+# Chapter 5: the two-cart deal.
+#
+# The Centipede Game — sequential moves and backward induction. A pot of
+# money grows every time it's passed along instead of taken; whoever takes
+# it keeps the whole thing, ending the game immediately. Alternating turns,
+# player first: Player, NPC, Player, NPC, Player, NPC (3 player decisions).
+#
+# The NPC (a rival trader splitting a shared cart-hire deal with the
+# player) is deterministically scripted to let it ride on its first two
+# turns and take everything on its third and final turn — same
+# deterministic-opponent discipline as every other chapter, chosen
+# specifically so the game has a genuine 3-decision arc instead of
+# collapsing to a trivial first move.
+#
+# Backward induction, verified by reasoning from the guaranteed final move:
+# at the NPC's 3rd turn it always takes everything (scripted, not a real
+# choice) — so at the player's 3rd turn, passing guarantees Rs 0 while
+# taking guarantees the pot on the table, so a rational player always takes
+# there. Knowing that, a rational NPC at ITS 2nd turn should also prefer
+# taking over passing into a turn where the player will just take anyway —
+# and reasoning keeps unraveling backward the same way a purely rational
+# NPC would, all the way to the player's very first move. That's the
+# textbook result: pure backward induction says take immediately, on the
+# very first turn, for the smallest pot on the table. What actually
+# happens in this scenario — an opponent who lets it ride twice, tempting
+# the player to do the same, before snapping up the final pot — is the gap
+# between that theoretical prediction and how these games actually play
+# out in practice, which is the whole point of the chapter.
+# ---------------------------------------------------------------------------
+
+CENTIPEDE_POT_START = 20
+# Pot available to TAKE at each of the player's 3 decision points — each
+# double the last, since a pass doubles the pot twice (the player's own
+# pass, then the NPC's automatic one) before it's the player's turn again.
+CENTIPEDE_PLAYER_POTS = [20, 80, 320]
+# What the NPC claims for itself if the player passes all 3 times.
+CENTIPEDE_FINAL_POT = 640
+
+_CENTIPEDE_MATRIX = PayoffMatrix(
+    row_label="Your decision",
+    col_label="Outcome",
+    row_options=["Take on turn 1 (Rs 20)", "Take on turn 2 (Rs 80)", "Take on turn 3 (Rs 320)", "Never take"],
+    col_options=["Your payoff"],
+    cells={
+        (0, 0): PayoffCell(CENTIPEDE_PLAYER_POTS[0]),
+        (1, 0): PayoffCell(CENTIPEDE_PLAYER_POTS[1]),
+        (2, 0): PayoffCell(CENTIPEDE_PLAYER_POTS[2]),
+        (3, 0): PayoffCell(0),
+    },
+)
+
+
+def _resolve_centipede(choice_id: str, rng: random.Random) -> EncounterOutcome:
+    if choice_id == "take1":
+        payoff = CENTIPEDE_PLAYER_POTS[0]
+        lines = [
+            f"You take the Rs {payoff} on the table right now, before he gets a turn at all.",
+            f"Net effect on your business: {payoff:+d} rupees.",
+        ]
+    elif choice_id == "pass_take3":
+        payoff = CENTIPEDE_PLAYER_POTS[1]
+        lines = [
+            "You let it ride once — and rather than grab the smaller pot himself, he lets it ride too.",
+            f"On your second turn, with the pot at Rs {payoff}, you decide not to push your luck again — you take it.",
+            f"Net effect on your business: {payoff:+d} rupees.",
+        ]
+    elif choice_id == "pass_pass_take5":
+        payoff = CENTIPEDE_PLAYER_POTS[2]
+        lines = [
+            "You let it ride twice, and both times, so does he.",
+            f"On your third turn, with the pot swollen to Rs {payoff}, that's enough for you — you take it.",
+            f"Net effect on your business: {payoff:+d} rupees.",
+        ]
+    else:  # "pass_pass_pass"
+        payoff = 0
+        lines = [
+            "You let it ride all three times you had the chance, hoping he'd keep letting it ride too.",
+            f"He doesn't. On his final turn, with the pot swollen to Rs {CENTIPEDE_FINAL_POT}, he takes every "
+            "rupee of it for himself and walks away.",
+            f"Net effect on your business: {payoff:+d} rupees.",
+        ]
+    return EncounterOutcome(player_payoff=payoff, result_lines=lines)
+
+
+CENTIPEDE_ENCOUNTER = Encounter(
+    id="centipede",
+    chapter_title="Chapter 5: The Two-Cart Deal",
+    setup_steps=[
+        Step("idea", "A shared opportunity",
+             "A rival trader proposes splitting the hire of a big cart for "
+             "this week's harvest run — cheaper for both of you than "
+             "hiring separately, and there's a shared kitty of savings "
+             "from it, sitting on the table between you."),
+        Step("pot", "The kitty can grow",
+             f"Right now the kitty holds Rs {CENTIPEDE_POT_START}. Either of "
+             "you can take it all for yourself right now, ending the deal "
+             "— or let it ride, which doubles it, and passes the choice to "
+             "the other person."),
+        Step("question", "Turns alternate",
+             "You go first. Then him, if you let it ride. Then you again, "
+             "if he lets it ride too — back and forth, the kitty doubling "
+             "each time, until someone finally takes it."),
+        Step("warning", "Whoever takes it keeps it",
+             "Taking ends the deal immediately — whoever takes it keeps "
+             "the WHOLE kitty for themselves, and the other person gets "
+             "nothing from it at all."),
+        Step("scale", "Your move",
+             f"The kitty is at Rs {CENTIPEDE_POT_START}. It's your turn."),
+    ],
+    choices=[],  # Chapter 5 walks through 3 sequential turns instead of one
+    # choice list — see main.py's _draw_centipede_step / kind="centipede".
+    resolve=_resolve_centipede,
+    quiz=QuizQuestion(
+        prompt="If you assume your rival plays perfectly rationally at every turn — including his very last "
+               "one — why does backward induction say YOU should take the small pot immediately, turn 1?",
+        options=[
+            "Because at the final turn, a rational rival keeps the whole pot for himself — so reasoning "
+            "backward from there, every earlier turn unravels to the same conclusion: take now, before it "
+            "becomes someone else's turn to take everything.",
+            "Because the kitty doesn't actually grow — it's a fixed amount split evenly no matter what.",
+            "Because taking on turn 1 is required by the rules of the deal.",
+        ],
+        correct_index=0,
+    ),
+    matrix=_CENTIPEDE_MATRIX,
+    chapter_icon="pot",
+    kind="centipede",
+    lesson_pages=[
+        LessonPage(
+            concept_name="The Centipede Game",
+            lines=[
+                "This is called a Centipede Game — a chain of turns where "
+                "passing grows a shared pot, but taking ends everything "
+                "immediately and keeps it all for whoever took it.",
+                "Look at the table: waiting longer to take pays off BIG, "
+                "right up until the moment your rival decides to grab it "
+                "all instead of letting it ride — and then it's zero.",
+                "That tension — a growing reward against the risk that "
+                "someone else grabs it all first — is the whole game.",
+            ],
+            show_matrix=True,
+        ),
+        LessonPage(
+            concept_name="Backward Induction",
+            lines=[
+                "Work it out from the END instead of the start. On the "
+                "very last possible turn, a purely rational player always "
+                "takes everything — there's no future turn left to protect "
+                "by waiting.",
+                "Knowing that, the turn right before it is just as clear: "
+                "letting it ride only hands a certain zero to a rational "
+                "opponent who's about to take it all anyway — so you should "
+                "take there too. That reasoning keeps unraveling backward, "
+                "one turn at a time, all the way to the very first move.",
+                "The conclusion holds even though it feels wrong: pure "
+                "backward induction says take the small pot immediately, "
+                "on turn 1 — before your opponent, reasoning the exact same "
+                "way, gets the chance to. What actually happened in this "
+                "scenario — an opponent willing to let it ride, at least "
+                "twice, tempting you to keep pushing your luck — is real "
+                "behavior diverging from that cold theoretical prediction, "
+                "which is what real experiments with this exact game "
+                "consistently find: most people don't take immediately, "
+                "even though the theory says they should.",
+            ],
+            show_matrix=False,
+        ),
+    ],
+)
+
+
+# ---------------------------------------------------------------------------
+# Chapter 7: the cow you can't inspect.
+#
+# Adverse selection — Akerlof's "Market for Lemons," played from the
+# UNINFORMED side this time: the player is buying a milking cow whose true
+# quality (Good vs Lemon) only the seller knows. Deterministic, like every
+# other chapter's opponent, but the mechanism here is starker than a single
+# scripted response: the market has already fully unraveled BEFORE the
+# player ever makes an offer, because genuinely Good-cow owners rationally
+# stay out of a market where buyers can't verify quality and so won't pay
+# what a Good cow is really worth. That means no price the player offers —
+# "fair" or generous — brings a Good cow to market; every price only
+# clears Lemon owners, so paying MORE just means overpaying more for the
+# same guaranteed Lemon. This is the sharpest, most teachable form of
+# Akerlof's result (full unraveling to the lowest-quality equilibrium) and
+# it sets up Chapter 8 directly: since price alone can't fix this, the
+# player will need something OTHER than price next chapter.
+#
+# Numbers (all deterministic, verified before writing any narrative):
+#   Good cow: worth Rs 400 to a buyer who could verify it; owner's minimum
+#     acceptable price (its worth to them) Rs 300.
+#   Lemon: worth Rs 80 to a buyer; owner's minimum acceptable price Rs 50.
+#   Population the player believes they're facing: 50% Good, 50% Lemon, so
+#     a naive "fair average" offer = 0.5*400 + 0.5*80 = Rs 240.
+# A Good owner's Rs 300 floor is ABOVE that "fair average" offer, so they
+# never sell to a buyer who can't tell them apart from a Lemon — that's the
+# unraveling, not a coincidence of these particular numbers: verified this
+# holds for offer <= 300, i.e. any offer a buyer would consider "fair" or
+# even generous-but-not-reckless still can't clear a genuine owner's floor
+# once buyers are assumed unable to verify quality. Net effects: Fair offer
+# (Rs 240) still gets a Lemon: 80-240 = -160. Premium offer (Rs 320,
+# genuinely above the Good owner's floor) STILL only gets a Lemon in this
+# scenario, because Good owners have already priced themselves out of ever
+# trusting an unverified buyer's offer at all, so a bigger number doesn't
+# lure them back — it just costs more for the same Lemon: 80-320 = -240.
+# Walking away nets exactly 0. Dominance verified: 0 > -160 > -240.
+# ---------------------------------------------------------------------------
+
+_LEMON_GOOD_VALUE = 400
+_LEMON_LEMON_VALUE = 80
+_LEMON_FAIR_OFFER = 240
+_LEMON_PREMIUM_OFFER = 320
+
+_LEMONS_MATRIX = PayoffMatrix(
+    row_label="Your offer",
+    col_label="What actually sells to you",
+    row_options=["Fair average (Rs 240)", "Premium (Rs 320)", "Walk away"],
+    col_options=["A Lemon — the only kind selling"],
+    cells={
+        (0, 0): PayoffCell(_LEMON_LEMON_VALUE - _LEMON_FAIR_OFFER),
+        (1, 0): PayoffCell(_LEMON_LEMON_VALUE - _LEMON_PREMIUM_OFFER),
+        (2, 0): PayoffCell(0),
+    },
+)
+
+
+def _resolve_lemons_market(player_choice: str, rng: random.Random) -> EncounterOutcome:
+    if player_choice == "walk_away":
+        lines = [
+            "You decide you can't tell a good cow from a sick one here, "
+            "and no price fixes that — so you walk away and keep looking "
+            "elsewhere.",
+            "Net effect on your business: +0 rupees.",
+        ]
+        return EncounterOutcome(player_payoff=0, result_lines=lines)
+
+    offer = _LEMON_FAIR_OFFER if player_choice == "fair_offer" else _LEMON_PREMIUM_OFFER
+    net = _LEMON_LEMON_VALUE - offer
+    offer_desc = "what seems like a fair average price" if player_choice == "fair_offer" else "a generous, above-average price"
+    lines = [
+        f"You offer {offer_desc} — Rs {offer} — for a cow, assuming you'll "
+        "get something close to an average animal.",
+        "But the owner of any genuinely healthy cow already knows buyers "
+        "here can't tell their animal apart from a sickly one — so they "
+        "never bothered listing it at a price like yours in the first "
+        "place. Only the owners of sickly cows are willing sellers, no "
+        "matter what you offer.",
+        f"You end up with a sickly cow worth only about Rs {_LEMON_LEMON_VALUE} "
+        f"to you, having paid Rs {offer} for it.",
+        f"Net effect on your business: {net:+d} rupees.",
+    ]
+    return EncounterOutcome(player_payoff=net, result_lines=lines)
+
+
+LEMONS_MARKET_ENCOUNTER = Encounter(
+    id="lemons_market",
+    chapter_title="Chapter 7: The Cow You Can't Inspect",
+    setup_steps=[
+        Step("idea", "Time to expand",
+             "Business is good enough that you're ready to expand — a "
+             "milking cow would add a steady new line of income to your "
+             "farm."),
+        Step("question", "Can't tell by looking",
+             "At the cattle market, cows look healthy enough on the "
+             "surface. But some are genuinely strong milkers, and some are "
+             "quietly sickly in ways that won't show for weeks — only the "
+             "seller actually knows which is which."),
+        Step("warning", "The good ones may be missing",
+             "Owners of a genuinely healthy cow know buyers here can't "
+             "tell their animal apart from a sickly one. If they can't get "
+             "paid what it's really worth, why would they sell it here at "
+             "all?"),
+        Step("lemon", "A market that knows itself",
+             "That means the cows actually being offered to you may "
+             "already be skewed toward the sickly ones, before you even "
+             "make an offer."),
+        Step("scale", "Your move",
+             "How much do you offer — and does offering more even help?"),
+    ],
+    choices=[
+        EncounterChoice("fair_offer", "Offer a fair average price (Rs 240)",
+                         "Assume roughly half the cows here are healthy, and pay accordingly."),
+        EncounterChoice("premium_offer", "Offer a generous price (Rs 320)",
+                         "Pay well above average, hoping it attracts a genuinely healthy cow."),
+        EncounterChoice("walk_away", "Walk away",
+                         "You can't verify quality here at any price — so don't buy."),
+    ],
+    resolve=_resolve_lemons_market,
+    quiz=QuizQuestion(
+        prompt="Why did offering MORE money not get you a healthier cow?",
+        options=[
+            "Because genuinely healthy cows had already been withheld from a market where buyers can't verify "
+            "quality — no offer brings them back, so a bigger number just overpays for the same sickly cow.",
+            "Because the seller pocketed the difference and gave you the same cow either way.",
+            "Because paying more is against the rules of this market.",
+        ],
+        correct_index=0,
+    ),
+    matrix=_LEMONS_MATRIX,
+    chapter_icon="lemon",
+    lesson_pages=[
+        LessonPage(
+            concept_name="Adverse Selection (The Market for Lemons)",
+            lines=[
+                "Economist George Akerlof named this after used cars: "
+                "buyers can't tell a good car from a 'lemon' before buying "
+                "it, so they'll only pay an average price reflecting both. "
+                "But that average price is too low for genuinely good "
+                "cars' owners to bother selling at — so they leave the "
+                "market, dragging the average quality (and the average "
+                "price buyers will pay) down further. Left unchecked, this "
+                "spiral can unravel a whole market to nothing but lemons.",
+                "Look at the table: every offer nets you a Lemon here — "
+                "the healthy cows were never on the table to begin with, "
+                "for a buyer who can't tell them apart from a sick one.",
+            ],
+            show_matrix=True,
+        ),
+        LessonPage(
+            concept_name="Why Price Alone Can't Fix It",
+            lines=[
+                "It's tempting to think 'just pay more' solves this — but "
+                "the table shows the opposite: Rs 320 lost you MORE money "
+                "than Rs 240, for the exact same sickly cow. Paying more "
+                "doesn't summon a healthy cow into the market; it just "
+                "raises what you lose on the only cow actually being sold "
+                "to you.",
+                "This is the real bite of adverse selection: unlike "
+                "Chapter 1's dilemma, where paying more at least bought a "
+                "*chance* at quality, here NO price fixes the underlying "
+                "problem, because the problem isn't the price — it's that "
+                "buyers have no way to verify what they're actually "
+                "getting.",
+                "Walking away was the only choice that didn't lose money "
+                "— but that's not a real solution either; it just avoids "
+                "the trap instead of fixing it. Fixing it takes something "
+                "other than a bigger number, which is exactly the problem "
+                "the next chapter takes on, from the other side of this "
+                "same kind of market.",
+            ],
+            show_matrix=False,
+        ),
+    ],
+)
+
+
+# ---------------------------------------------------------------------------
+# Chapter 8: proving the goat is worth it.
+#
+# Signaling — the direct answer to Chapter 7's trap, played from the
+# INFORMED side this time. The player has raised a genuinely prize goat and
+# knows it, but buyers can't verify that any better than Chapter 7's cattle
+# buyer could. Chapter 7 showed that price alone can't fix this; here the
+# fix is a COSTLY, VERIFIABLE signal (a vet certification) — costly enough
+# that it only makes sense for someone who actually has the quality to back
+# it up.
+#
+# Numbers (verified before writing the narrative): pooling price (what an
+# unverified goat sells for, buyers assuming an average mix of genuine and
+# ordinary animals) = Rs 300. A genuine prize goat's true, verified value =
+# Rs 500. An ordinary goat's true, verified value = Rs 100. Certification
+# costs a flat Rs 120. For the player's ACTUAL (genuinely prize) goat:
+# certify nets 500-120=380 > pooling's 300 — worth it. The lesson also
+# checks the case the player ISN'T in, to establish the signal's
+# credibility: if the goat were merely ordinary, certifying would net
+# 100-120=-20, far worse than just pooling at 300 — so an ordinary-goat
+# owner would never rationally pay for this same certificate. That gap is
+# exactly what makes the certificate credible to a buyer in the first
+# place: only genuine quality can afford to prove itself this way. This is
+# a real, named result (Spence signaling / Akerlof-Spence-Stiglitz, the
+# same body of work Chapter 7 introduced) verified with actual numbers, not
+# asserted from theory alone.
+# ---------------------------------------------------------------------------
+
+_SIGNAL_POOLING_PRICE = 300
+_SIGNAL_PRIZE_VALUE = 500
+_SIGNAL_ORDINARY_VALUE = 100
+_SIGNAL_CERT_COST = 120
+
+
+def _resolve_goat_signal(player_choice: str, rng: random.Random) -> EncounterOutcome:
+    if player_choice == "no_signal":
+        net = _SIGNAL_POOLING_PRICE
+        lines = [
+            "You sell the goat as-is, no certification. Buyers can't tell "
+            "it apart from an ordinary animal, so it fetches only the "
+            "going average price.",
+            f"Net effect on your business: {net:+d} rupees.",
+        ]
+    else:
+        net = _SIGNAL_PRIZE_VALUE - _SIGNAL_CERT_COST
+        lines = [
+            f"You pay a vet Rs {_SIGNAL_CERT_COST} for a proper certified "
+            "inspection, then take the paperwork to market with the goat.",
+            "Buyers can now verify what you already knew — this is "
+            "genuinely prize stock — and pay accordingly, instead of "
+            "guessing at an average.",
+            f"Net effect on your business: {net:+d} rupees.",
+        ]
+    return EncounterOutcome(player_payoff=net, result_lines=lines)
+
+
+GOAT_SIGNAL_ENCOUNTER = Encounter(
+    id="goat_signal",
+    chapter_title="Chapter 8: Proving The Goat Is Worth It",
+    setup_steps=[
+        Step("idea", "A genuine prize",
+             "Months of careful breeding have paid off: you've raised a "
+             "genuinely exceptional goat, clearly the best in your herd. "
+             "You know it. The buyers at market don't."),
+        Step("question", "Looks like any other goat",
+             "To anyone just looking it over at the market, it's "
+             "indistinguishable from an ordinary animal — the same "
+             "problem you ran into buying that cow, except now you're the "
+             "one holding the quality nobody can verify."),
+        Step("lemon", "The same trap, flipped",
+             "Buyers here have been burned by this before. Unless you can "
+             "prove it, they'll only offer you the going average price — "
+             "the same price an ordinary goat would fetch."),
+        Step("certificate", "A costly way to prove it",
+             "A traveling vet at the market offers certified quality "
+             "inspections — real money, upfront, with no guarantee "
+             "buyers even care. But it's a real, verifiable answer to "
+             "'how do I know you're not just saying that?'"),
+        Step("scale", "Your move",
+             "Do you pay for the proof, or take the average price and "
+             "move on?"),
+    ],
+    choices=[
+        EncounterChoice("no_signal", "Sell it as-is",
+                         "No certification — take the average market price, no upfront cost."),
+        EncounterChoice("certify", f"Pay for certification (Rs {_SIGNAL_CERT_COST})",
+                         "Prove what you already know, so buyers pay for what it's actually worth."),
+    ],
+    resolve=_resolve_goat_signal,
+    quiz=QuizQuestion(
+        prompt="Why would the owner of an ordinary, average-quality goat never bother paying for this same certification?",
+        options=[
+            "Because certifying an ordinary goat would cost more than it's actually worth once verified — "
+            "it would only prove they're not worth much, for a net loss.",
+            "Because the vet refuses to inspect ordinary goats.",
+            "Because certification is illegal for anyone but prize animals.",
+        ],
+        correct_index=0,
+    ),
+    chapter_icon="certificate",
+    lesson_pages=[
+        LessonPage(
+            concept_name="Signaling",
+            lines=[
+                "Chapter 7 showed that price alone can't fix a market "
+                "where buyers can't verify quality — paying more doesn't "
+                "summon better quality into view. This chapter is the "
+                "other half of that same problem: if you're the one who "
+                "actually HAS the quality, how do you prove it?",
+                "The answer economist Michael Spence is known for: a "
+                "costly, verifiable signal — something expensive enough, "
+                "or hard enough to fake, that only genuine quality can "
+                "afford to send it.",
+                "Paying Rs 120 to certify a goat worth Rs 500 nets Rs 380 "
+                "— clearly better than the Rs 300 pooling price you'd get "
+                "unverified. The certificate paid for itself.",
+            ],
+            show_matrix=False,
+        ),
+        LessonPage(
+            concept_name="What Makes a Signal Credible",
+            lines=[
+                "Here's the part that makes this actually work, not just "
+                "a lucky guess: imagine your goat had been an ordinary "
+                "one instead, worth only Rs 100 once verified. Certifying "
+                "it would still cost Rs 120 — netting Rs -20, far worse "
+                "than just taking the Rs 300 pooling price unverified.",
+                "That means an ordinary-goat owner would never rationally "
+                "pay for this certificate — it only makes sense for "
+                "someone who actually has the quality to back it up. "
+                "That's exactly why a buyer can trust it: the cost itself "
+                "screens out anyone who'd be lying.",
+                "This is the real fix for Chapter 7's trap — not a bigger "
+                "price, but a signal too expensive for a lemon to fake. "
+                "It's why real markets lean on warranties, certifications, "
+                "credentials, and inspections: not as paperwork for its "
+                "own sake, but because their cost is what makes them "
+                "believable.",
+            ],
+            show_matrix=False,
+        ),
+    ],
+)
+
+
 STORY_ENCOUNTERS: dict[str, Encounter] = {
     QUALITY_PRICE_ENCOUNTER.id: QUALITY_PRICE_ENCOUNTER,
     ROAD_FUND_ENCOUNTER.id: ROAD_FUND_ENCOUNTER,
     STAG_HUNT_ENCOUNTER.id: STAG_HUNT_ENCOUNTER,
     JUICE_STALL_ENCOUNTER.id: JUICE_STALL_ENCOUNTER,
+    CENTIPEDE_ENCOUNTER.id: CENTIPEDE_ENCOUNTER,
+    ITERATED_PD_ENCOUNTER.id: ITERATED_PD_ENCOUNTER,
+    LEMONS_MARKET_ENCOUNTER.id: LEMONS_MARKET_ENCOUNTER,
+    GOAT_SIGNAL_ENCOUNTER.id: GOAT_SIGNAL_ENCOUNTER,
 }

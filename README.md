@@ -29,7 +29,7 @@ rule-based heuristics — no LLM calls for them, to keep things fast and free.
   Market screen (stalls with awnings/crates/fruit, your avatar + target,
   narration, return button). Two screens are just two draw functions and one
   `screen_state` flag — no scene files, no engine machinery.
-- `test_logic.py` — runs a full 20-round game with the human auto-playing
+- `test_logic.py` — runs a full 10-round game with the human auto-playing
   Solo, asserts it finishes without exceptions, prints standings. Run this
   any time you touch `game_logic.py`.
 - `achievements.py` — badge definitions + `AchievementTracker`, which watches
@@ -136,8 +136,11 @@ Same interpretive choices as the Unity version (this is a direct port):
   *examples*.
 - **Burnout duration**: 2 rounds after 3 consecutive rejects (tunable via
   `BURNOUT_DURATION_ROUNDS` in `game_logic.py`).
-- **16 players, 20 rounds** by default (`GameManager.__init__` args) — enough
-  players for connection counts to reach the N=15+ "Eq3" zone.
+- **16 players, 10 rounds** by default (`GameManager.__init__` args) — the
+  16-step global zone table (reaching N=15+ "Eq3") is still what bots play
+  against for the whole game; the human only reaches rounds 9-10 of it, so
+  their own progress reads off a separate, compressed finale table instead
+  (see "The finale, compressed: rounds 9-10" below).
 - **Intelligence data point**: one of {skill, points, connections, burnout}
   at random, revealed truthfully.
 - **Village/job/market framing**: cosmetic layer on top of the core
@@ -670,6 +673,202 @@ present across the whole encounter flow:
   player's points changed by exactly the one committed payoff regardless of
   how much backward/forward navigation happened afterward — no
   double-application, no way to re-roll a decision.
+
+## 10 sessions, not 20 rounds: the course moved, so the game did too
+
+The course this game supports restructured to 10 in-class sessions, so
+`GameManager.total_rounds` moved from 20 to 10 and `story_encounter_rounds`
+grew from 4 entries to 8. New round mapping: Chapters 1-4 unchanged at
+rounds 1-4, four new chapters (below) at rounds 5-8, and the connections
+game — previously 16 rounds (5-20) — compressed to just its last 2 rounds
+(9-10), now explicitly the finale ("as we grow our business") rather than
+the bulk of the game.
+
+One knock-on fix: `special_event_round` ("Market Day," a one-round bonus to
+Approach) used to be computed as `total_rounds // 2`. With 10 rounds that
+lands on round 5 — now a story round with no Approach actions at all, human
+or bot, so the event would silently never fire. Pinned explicitly to
+`total_rounds - 1` (round 9) instead, so it still lands with one round left
+to feel its effect, inside the connections-game portion where Approach
+actually happens.
+
+## Chapter 5 — The Two-Cart Deal: the Centipede Game
+
+Sequential moves and backward induction, and the first chapter that
+doesn't fit the "one choice, one resolve()" shape every other chapter
+uses — Chapter 5 is genuinely turn-based: a shared kitty starts at Rs 20 and
+doubles every time it's passed instead of taken, alternating Player → NPC →
+Player → NPC → Player → NPC (3 real player decisions). Taking ends the deal
+immediately and keeps the whole kitty for whoever took it.
+
+- **The NPC is deterministically scripted to let it ride on its first two
+  turns and take everything on its third** — same "deliberately
+  deterministic opponent" discipline as every earlier chapter, chosen so the
+  game has a genuine 3-decision arc (`CENTIPEDE_PLAYER_POTS = [20, 80,
+  320]`, `CENTIPEDE_FINAL_POT = 640` in `story_games.py`) instead of
+  collapsing to a trivial first move. Verified by working backward from that
+  guaranteed final NPC take: since it's a certainty, the player's own last
+  turn should always take (passing there guarantees zero); knowing that,
+  reasoning keeps unraveling the same way all the way back to turn 1 — pure
+  backward induction says take immediately, for the smallest pot on the
+  table, even though what actually happens in the scripted scenario (letting
+  it ride twice before the NPC finally grabs it) tempts the player to keep
+  pushing their luck. That gap between the theoretical prediction and the
+  scripted opponent's actual behavior is the whole point of the chapter, and
+  mirrors real centipede-game experiments, where most people don't take
+  immediately even though the theory says they should.
+- **main.py gets a small, chapter-specific chain of choice sub-phases**
+  (`"choice"` → `"choice2"` → `"choice3"`, see `_draw_centipede_step` /
+  `_encounter_centipede_take` / `_encounter_centipede_pass`) instead of a
+  generic multi-turn engine — deliberately, since only this one chapter
+  needs it. Each sub-phase reuses the exact same choice-button rendering as
+  every other chapter; once the chain resolves to one of 4 terminal
+  outcomes, it calls the *same* `resolve(choice_id, rng) -> EncounterOutcome`
+  contract every other chapter uses (`_encounter_resolve_choice`, factored
+  out of the old `_encounter_choose` so both paths share it) — so
+  `story_games.py`'s shape doesn't change at all, and the quiz/lesson/
+  summary/back-button phases downstream are 100% shared, unmodified code.
+  Back-navigation extends the same way: `"choice3"` → `"choice2"` →
+  `"choice"` → last setup step, one more link in the existing chain.
+
+## Chapter 6 — The Same Supplier, All Season: Iterated Prisoner's Dilemma
+
+Reputation, forgiveness, and repeated games — literally the same stage game
+as Chapter 1 (this chapter reuses `_QUALITY_PRICE_MATRIX` and
+`_QUALITY_PRICE_PAYOFFS` unchanged), but played 8 times against the same
+opponent instead of once, which is what changes the incentives: a dominant
+strategy to defect in a one-shot game no longer dominates once your move can
+be answered next round.
+
+- **The player picks a whole-season STRATEGY, not a single move** — Always
+  Distrust / Tit-for-Tat / Grim Trigger / Forgiving Tit-for-Tat (defects only
+  after TWO straight observed defections) — matching the brief's request
+  that players "choose strategies" rather than click through 8 individual
+  rounds. `resolve()` genuinely *simulates* the 8-round match against a
+  fixed Tit-for-Tat supplier, with a real 10% per-round chance, independent
+  each side, that an intended cooperate is miscommunicated and observed as a
+  defection — never the reverse, matching "a cooperative move is
+  miscommunicated as a defection." No new UI needed: the result is one
+  `result_lines` entry per round plus a final total, reusing the existing
+  one-line-at-a-time reveal every chapter already has.
+- **Verified by actual simulation, not asserted from theory**: 4000 seeded
+  8-round runs gave mean totals of Always Distrust -52.6, Grim Trigger
+  166.5, Tit-for-Tat 200.7, Forgiving Tit-for-Tat 261.9 rupees — the
+  intended ranking, and Always Distrust is a net LOSS on average despite
+  winning its first round (it exploits the supplier's initial trust, then
+  both sides mirror each other into permanent mutual punishment for the
+  remaining 7 rounds). A separate check across longer horizons (20, 40
+  rounds) confirmed Tit-for-Tat's edge over Grim Trigger widens the longer
+  the relationship runs, since Grim Trigger's one uncorrectable trigger
+  costs it more the longer it has to live with the fallout — that's the
+  actual, measured reason "forgiving a single slip" is framed as the best
+  strategy in the lesson, not a guess.
+
+## Chapters 7 & 8 — the cow you can't inspect, then proving the goat is worth it
+
+Asymmetric information, played from both sides of the same kind of market:
+Chapter 7 is Akerlof's "Market for Lemons" from the *uninformed buyer's*
+side, Chapter 8 is signaling from the *informed seller's* side — a direct
+answer to the trap Chapter 7 sets up.
+
+- **Chapter 7**: the player is buying a milking cow whose true quality only
+  the seller knows. The market has already fully unraveled before any offer
+  is made — genuinely healthy cows' owners rationally stay out of a market
+  where buyers can't verify quality, so no price a buyer offers (fair or
+  generous) brings one to market; every offer nets a Lemon, and a bigger
+  offer just overpays for the same guaranteed Lemon (Rs 240 fair offer nets
+  -160; Rs 320 premium offer nets -240; walking away nets 0 — verified
+  dominance: 0 > -160 > -240). This is deliberately the starkest, most
+  teachable form of Akerlof's result (full unraveling), not a softer
+  "sometimes you get unlucky" version.
+- **Chapter 8**: the player now owns a genuine prize goat and must decide
+  whether to pay Rs 120 for a costly, verifiable signal (a vet
+  certification) instead of settling for the Rs 300 pooling price an
+  unverified goat gets. Certifying nets 500-120=380, beating the 300
+  pooling price — but the lesson also checks the case the player *isn't*
+  in, to establish the signal's credibility: if the goat were merely
+  ordinary (worth 100 verified), certifying would net 100-120=-20, far
+  worse than pooling at 300 — so an ordinary-goat owner would never
+  rationally pay for the same certificate. That gap between what's worth
+  proving and what isn't is exactly what makes a costly signal credible to
+  a buyer in the first place, verified with real numbers rather than
+  asserted from Spence's theory alone.
+- **Two real layout bugs caught here**, both from "size the container to
+  the content" gaps that had gone unnoticed because no earlier chapter's
+  text was long enough to trigger them: (1) `_encounter_button`'s
+  `sub_label` (a choice's detail text) was never wrapped — Chapter 6's
+  "forgive a single slip" detail ran straight off the panel's right edge
+  instead of clipping to its button. Fixed by wrapping it against the
+  button's own width and sizing the button's height to fit
+  (`_encounter_choice_button_rect`). (2) `_draw_payoff_matrix`'s row-label
+  gutter (the vertical "You" label left of the row-option boxes) was a
+  fixed 36px, sized only for one-word labels — Chapter 7's two-word "Your
+  offer" overflowed it and got silently painted over by the row boxes drawn
+  after it. Fixed by measuring the actual label and sizing the gutter (and
+  the row-option box offset it feeds into) to match, the same fix shape as
+  the row/column *option* wrapping fixed earlier for Chapter 2. Confirmed
+  via screenshot that both fixes are pixel-identical to the old layout for
+  every existing chapter's short labels, and correct for the new long ones.
+
+## The finale, compressed: rounds 9-10
+
+The connections/network game used to be the bulk of the game (16 rounds);
+now it's just the last 2, and two things had to be rethought so it still
+lands its own lesson in that much less room.
+
+- **A separate, small finale payoff table**, not a rescale of the existing
+  one. The original 16-step zone table (`_BASE_PAYOFF`/`_ZONE_NAMES`) is
+  shared by every player — bots keep playing the connections game normally
+  every round of the whole 10-round game, unlike the human, who only reaches
+  it at rounds 9-10 — and its balance was carefully tuned and verified via
+  repeated simulation already. Rescaling it globally to fit 2 rounds would
+  also silently warp 8 rounds of bot economy and need re-verifying the whole
+  leaderboard. Instead, `get_finale_base_payoff`/`get_finale_zone_name` are
+  a separate, small 2-tier table (`_FINALE_BASE_PAYOFF = [45, 90]`) used
+  *only* for the human, *only* during rounds 9-10 — an honest 2-tier version
+  of the same lesson (Eq1 solo trap vs Eq3 global optimum) rather than a
+  pretend 3-tier trap/valley/optimum arc whose 3rd tier could never actually
+  pay out with only 2 rounds to realize it in. Verified by direct
+  simulation: playing it safe both rounds nets exactly 90 (deterministic);
+  reaching out both rounds nets a mean of 135 with real downside risk (worst
+  observed case ~83) — a meaningfully better expected outcome for taking the
+  risk, without being a free lunch.
+- **Connections gained DURING the finale, not lifetime connections.** Bots
+  keep approaching everyone — including the human — all through the story
+  rounds, so a player can arrive at round 9 already holding a connection or
+  two just from being on the receiving end of a bot's Approach, without
+  ever having taken an action themselves. Caught via a full 10-round
+  headless playthrough that showed the human's zone reading "Eq3 — Global
+  optimum" at the very start of round 9, before making a single finale
+  decision. Fixed by capturing a baseline (`GameManager.
+  _finale_baseline_connections`) the moment the finale begins, and keying
+  the finale table off `connections - baseline` (`human_finale_connections()`)
+  everywhere it's used — payoff calculation and the HUD's zone label alike
+  — instead of the player's raw lifetime connection count.
+
+## Chapter completion shows what you actually earned
+
+Direct feedback: "At the end of each chapter, show how much money you have
+and how much you gained or lost in the round." The result phase already
+showed a chapter's net effect once, mid-narration — but nothing restated it
+next to the running total at the moment the chapter actually closed, so a
+player had to go check the HUD separately to see what it added up to.
+
+- New `encounter_phase == "summary"`, inserted between the last lesson page
+  and `_encounter_finish()` — applies to all 8 chapters automatically, since
+  it's wired into the shared phase machine every chapter already goes
+  through, not chapter-specific code. Shows the chapter's net rupees
+  (colored green/red) and the resulting total money, with a "Continue your
+  journey" button.
+- The back button (shipped just before this round of work) extends to cover
+  it: back from `"summary"` returns to the lesson's last page, fully
+  revealed, the same pattern used for every other phase transition.
+- Verified headlessly, including the invariant that matters most: made a
+  real choice, advanced to the summary screen, backed up into the lesson and
+  forward again, and confirmed the committed payoff is applied to the
+  player's points exactly once no matter how much back-and-forth happens —
+  extending the same check the back button's own verification already
+  established for every other phase.
 
 ## Known limitations
 
