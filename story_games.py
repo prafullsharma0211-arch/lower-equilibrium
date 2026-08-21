@@ -271,11 +271,31 @@ QUALITY_PRICE_ENCOUNTER = Encounter(
 # shopkeepers are modeled as already-rational free-riders (contribute 0),
 # same deliberate-determinism rationale as the supplier in Chapter 1 — see
 # _resolve_road_fund.
+#
+# Four contribution levels rather than a binary in/out (Rs 0 / 25 / 50 /
+# 100) — direct feedback asking for more choices to make the decision feel
+# harder. Verified before adding them that dominance survives the extra
+# granularity rather than assuming it: net(c) = floor(2c/5) - c is linear
+# in c for any multiple of 5, so EVERY row is strictly worse than the one
+# above it in BOTH columns (0 > -15 > -30 > -60 free-riding; 160 > 145 >
+# 130 > 100 if the other four contribute) — contributing nothing remains
+# the unique dominant choice, and now the table also shows the added
+# insight that partial "hedging" contributions still lose money in
+# proportion to how much you put in, not just the extremes.
 # ---------------------------------------------------------------------------
 
 _ROAD_FUND_N = 5          # you + 4 other shopkeepers
 _ROAD_FUND_SHARE = 100     # the "fair share" ask per shopkeeper
 _ROAD_FUND_OTHERS_TOTAL = 0  # the other 4 shopkeepers' fixed (rational) contribution
+
+# choice id -> rupee amount, ascending — the single source of truth for
+# both the resolve() math and the matrix built from it below.
+_ROAD_FUND_CHOICE_AMOUNTS = {
+    "free_ride": 0,
+    "contribute_25": 25,
+    "contribute_50": 50,
+    "contribute": _ROAD_FUND_SHARE,
+}
 
 
 def _road_fund_net(contribution: int, others_total: int) -> tuple[int, int, int]:
@@ -289,35 +309,43 @@ def _road_fund_net(contribution: int, others_total: int) -> tuple[int, int, int]
 _ROAD_FUND_MATRIX = PayoffMatrix(
     row_label="You",
     col_label="The other 4 shopkeepers",
-    row_options=["Contribute nothing", f"Contribute Rs {_ROAD_FUND_SHARE}"],
+    row_options=[
+        # Short enough to stay on one line each — "Contribute nothing"
+        # wrapped to two, which alone forced every row in the table to
+        # that same taller height and pushed the 4-row table (up from 2)
+        # past the bottom of the fixed-size window on the lesson page.
+        "Nothing",
+        "Rs 25",
+        "Rs 50",
+        f"Rs {_ROAD_FUND_SHARE}",
+    ],
     col_options=["All free-ride", "All contribute"],
     cells={
-        (0, 0): PayoffCell(_road_fund_net(0, 0)[0]),
-        (0, 1): PayoffCell(_road_fund_net(0, _ROAD_FUND_SHARE * (_ROAD_FUND_N - 1))[0]),
-        (1, 0): PayoffCell(_road_fund_net(_ROAD_FUND_SHARE, 0)[0]),
-        (1, 1): PayoffCell(_road_fund_net(_ROAD_FUND_SHARE, _ROAD_FUND_SHARE * (_ROAD_FUND_N - 1))[0]),
+        (i, j): PayoffCell(_road_fund_net(amount, others)[0])
+        for i, amount in enumerate(_ROAD_FUND_CHOICE_AMOUNTS.values())
+        for j, others in enumerate((0, _ROAD_FUND_SHARE * (_ROAD_FUND_N - 1)))
     },
 )
 
 
 def _resolve_road_fund(player_choice: str, rng: random.Random) -> EncounterOutcome:
-    contribution = _ROAD_FUND_SHARE if player_choice == "contribute" else 0
+    contribution = _ROAD_FUND_CHOICE_AMOUNTS[player_choice]
     net, road_fund, share_each = _road_fund_net(contribution, _ROAD_FUND_OTHERS_TOTAL)
 
-    if player_choice == "contribute":
+    if contribution == 0:
+        lines = [
+            "You keep your money. The other four shopkeepers do the same.",
+            "With nobody contributing, there's nothing for the merchant to "
+            "match, and no road fund at all — the road stays exactly as "
+            "broken as it was.",
+        ]
+    else:
         lines = [
             f"You put in Rs {contribution} toward the repair. The other four "
             "shopkeepers quietly hold onto theirs.",
             f"The merchant matches the group's total, so the fund comes to "
             f"Rs {road_fund} — split five ways, that's Rs {share_each} back "
             "to each shopkeeper, including the four who paid nothing.",
-        ]
-    else:
-        lines = [
-            "You keep your money. The other four shopkeepers do the same.",
-            "With nobody contributing, there's nothing for the merchant to "
-            "match, and no road fund at all — the road stays exactly as "
-            "broken as it was.",
         ]
     lines.append(f"Net effect on your business: {net:+d} rupees.")
 
@@ -348,18 +376,21 @@ ROAD_FUND_ENCOUNTER = Encounter(
              "again is split equally among all five shopkeepers, however much "
              "each of you actually put in."),
         Step("scale", "Your move",
-             "It's your turn to decide: how much of your own money goes "
-             "toward the road?"),
+             "It's your turn to decide: how much of your own money — "
+             "nothing, a token amount, half your share, or the full "
+             f"Rs {_ROAD_FUND_SHARE} — goes toward the road?"),
     ],
     choices=[
         EncounterChoice("free_ride", "Contribute nothing", "Keep your money — let the others cover it."),
-        EncounterChoice("contribute", f"Contribute your share (Rs {_ROAD_FUND_SHARE})", "Trust that this pays off for everyone, including you."),
+        EncounterChoice("contribute_25", "Contribute a token amount (Rs 25)", "Hedge your bet — commit a little without risking much."),
+        EncounterChoice("contribute_50", "Contribute half your share (Rs 50)", "Meet them halfway — a bigger gesture, a bigger risk."),
+        EncounterChoice("contribute", f"Contribute your full share (Rs {_ROAD_FUND_SHARE})", "Trust that this pays off for everyone, including you."),
     ],
     resolve=_resolve_road_fund,
     quiz=QuizQuestion(
-        prompt="Why does contributing your share cost you money personally, even with the merchant matching every rupee?",
+        prompt="Why does contributing ANY amount toward the fund cost you money personally, even with the merchant matching every rupee?",
         options=[
-            "You only get back your equal 1-in-5 slice of the fund, which is less than what you put in, no matter what anyone else does — holding back is your dominant strategy.",
+            "You only ever get back your equal 1-in-5 slice of the fund — about 2/5 of whatever you put in — so contributing more just loses you more, no matter what anyone else does; holding back completely is your dominant strategy.",
             "The merchant secretly kept some of the matching money.",
             "The road repair failed, so the money was wasted.",
         ],
@@ -371,20 +402,24 @@ ROAD_FUND_ENCOUNTER = Encounter(
         LessonPage(
             concept_name="Public Goods Game (The Free-Rider Problem)",
             lines=[
+                # Trimmed to 2 tight paragraphs, not 3 — the mechanics
+                # (merchant's match, equal split) are already covered in
+                # setup_steps above, so repeating them here in full just
+                # pushed the now-4-row table (up from 2) past the bottom
+                # of the fixed-size window. See the row_options comment
+                # on _ROAD_FUND_MATRIX for the matching fix on that side.
                 "This is a bigger version of the same trap as the market "
-                "supplier — except now there are five of you instead of "
-                "two, and your payoff depends on what EVERYONE puts in, "
-                "not just one other person.",
-                "Contributions get pooled, doubled by the merchant's "
-                "match, then split equally among all five shopkeepers — "
-                "whether they contributed or not. Every rupee you put in "
-                "only sends 2/5 of a rupee back to you personally; the "
-                "rest subsidizes the other four.",
-                "Look at the table: whether the other shopkeepers free-ride "
-                "or all chip in, your own payoff is always higher in the "
-                "top row. That holds in every column — this is a dominant "
-                "strategy, the same idea as Chapter 1, just played out "
-                "across five people instead of two.",
+                "supplier — except now there are five of you, and your "
+                "payoff depends on what EVERYONE puts in, not just one "
+                "other person. Every rupee you contribute only sends 2/5 "
+                "of a rupee back to you personally; the rest subsidizes "
+                "the other four.",
+                "Look at the table: moving down the rows — Rs 25, Rs 50, "
+                "Rs 100 — only ever makes your payoff worse, whether the "
+                "other four free-ride or all chip in. No 'hedge' amount "
+                "beats contributing nothing — a dominant strategy, the "
+                "same idea as Chapter 1, across five people instead of "
+                "two.",
             ],
             show_matrix=True,
             highlight_row=0,

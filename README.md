@@ -457,6 +457,49 @@ matrix's real rendered height instead of a fixed offset from the panel
 bottom, so a taller table can't silently push the button off-panel (or,
 briefly during the fix, off the bottom of the screen entirely).
 
+**Two more contribution levels, Rs 25 and Rs 50** — direct feedback asking
+for more than a binary in/out choice, so the decision doesn't reduce to an
+obvious coin flip. `_ROAD_FUND_CHOICE_AMOUNTS` is now the single source of
+truth mapping each of the 4 choice ids (`free_ride`, `contribute_25`,
+`contribute_50`, `contribute`) to a rupee amount, feeding both
+`_resolve_road_fund()` and a matrix comprehension that builds all 8 cells
+(4 rows × 2 columns) from it, rather than hand-writing each cell. Verified
+before writing any narrative that dominance survives the added
+granularity rather than assuming it: `net(c) = floor(2c/5) - c` is linear
+in `c`, so *every* row is strictly worse than the one above it in *both*
+columns —
+
+```
+                  All free-ride   All contribute
+Contribute Rs 0        +0              +160
+Contribute Rs 25      -15              +145
+Contribute Rs 50      -30              +130
+Contribute Rs 100     -60              +100
+```
+
+— which means the lesson gets a genuinely new, true claim to make, not
+just a cosmetic new button: there's no clever "hedge" amount hiding in
+the middle that beats contributing nothing, holding back completely
+remains the unique dominant choice, and partial contributions lose money
+in direct proportion to how much you put in.
+
+**A second layout bug, caught the same way as the first**: going from 2
+rows to 4 pushed the lesson pages' text-plus-table combination past the
+bottom of the fixed 1100×720 window — the "Next" button rendered off
+the bottom of the screen entirely and was unclickable, only visible via a
+headless screenshot, not by reasoning about the layout code. Two things
+were driving it, both fixed: the row label "Contribute nothing" was the
+only one of the four that wrapped to two lines, which forced *every* row
+in the table to that taller height even though the other three fit on
+one line (renamed the row labels to "Nothing" / "Rs 25" / "Rs 50" / "Rs
+100," short enough that none of them wrap); and lesson page 1's prose had
+grown to 3 paragraphs partly re-explaining mechanics the setup narration
+already covers (the merchant's match, the equal split), trimmed to 2
+tighter paragraphs. Both fixes verified by instrumenting
+`_draw_payoff_matrix()` to print its actual rendered bottom edge and
+confirming the following button's rect stays within the 720px window
+before trusting a screenshot to confirm it visually.
+
 ## Points are rupees, and the game now says so
 
 "Points" was always meant to represent money — the encounters already
