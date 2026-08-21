@@ -470,12 +470,34 @@ ROAD_FUND_ENCOUNTER = Encounter(
 # established trust with a still-new farmer, so absent any assurance he
 # defaults to the risk-dominant choice. That's not a quirk of this one
 # NPC — it's the central real-world insight a Stag Hunt is built to teach.
+#
+# A third, middle option (direct feedback: "3 options — rabbit, bison,
+# stag" instead of 2) — the classic extended framing of the hunting story
+# this game is named after: hunt a rabbit alone (small, safe, guaranteed),
+# hunt a bison with partial help (a real middle ground), or hunt a stag
+# together (the biggest prize, but only if your partner truly commits).
+# Verified algebraically before writing narrative, not just added as a
+# cosmetic third button:
+#   - Exactly two genuine pure-strategy Nash equilibria survive adding the
+#     middle option, at the same two cells as before (Rabbit+Doesn't-build,
+#     Stag+Builds) — Bison is never any player's best response to either
+#     of the warehouse owner's pure choices, so it doesn't create a third,
+#     spurious equilibrium.
+#   - Bison is nonetheless a genuine, non-decorative choice: computing
+#     expected value against a BELIEF (rather than certainty) about the
+#     warehouse owner's move shows Bison is uniquely optimal for any
+#     belief that he builds with probability roughly 0.5-0.62 — a real
+#     hedge for a player who isn't sure yet, not just a trap option. Once
+#     the warehouse owner's actual (deterministic, risk-averse) behavior
+#     is revealed, Rabbit turns out to have been strictly best all along.
 # ---------------------------------------------------------------------------
 
 _STAG_HUNT_PAYOFFS = {
     # (farmer_choice, supplier_choice): (farmer_payoff, supplier_payoff)
     ("import_special", "build"): (150, 150),
     ("import_special", "no_build"): (-100, 40),
+    ("import_bison", "build"): (100, 60),
+    ("import_bison", "no_build"): (-20, 40),
     ("import_regular", "build"): (40, -80),
     ("import_regular", "no_build"): (40, 40),
 }
@@ -483,13 +505,20 @@ _STAG_HUNT_PAYOFFS = {
 _STAG_HUNT_MATRIX = PayoffMatrix(
     row_label="You",
     col_label="Warehouse owner",
-    row_options=["Import special greens", "Import regular produce"],
+    # Short, single-line labels on purpose — a longer phrasing like "Import
+    # regular produce" wraps to two lines and forces every row in the
+    # table to that taller height, which is exactly what pushed Chapter
+    # 2's table (and its own "Next" button) past the bottom of the window
+    # once a third row was added. See that chapter's fix for the same bug.
+    row_options=["Regular produce", "Bison melons", "Special greens"],
     col_options=["Builds cold storage", "Doesn't build"],
     cells={
-        (0, 0): PayoffCell(*_STAG_HUNT_PAYOFFS[("import_special", "build")]),
-        (0, 1): PayoffCell(*_STAG_HUNT_PAYOFFS[("import_special", "no_build")]),
-        (1, 0): PayoffCell(*_STAG_HUNT_PAYOFFS[("import_regular", "build")]),
-        (1, 1): PayoffCell(*_STAG_HUNT_PAYOFFS[("import_regular", "no_build")]),
+        (0, 0): PayoffCell(*_STAG_HUNT_PAYOFFS[("import_regular", "build")]),
+        (0, 1): PayoffCell(*_STAG_HUNT_PAYOFFS[("import_regular", "no_build")]),
+        (1, 0): PayoffCell(*_STAG_HUNT_PAYOFFS[("import_bison", "build")]),
+        (1, 1): PayoffCell(*_STAG_HUNT_PAYOFFS[("import_bison", "no_build")]),
+        (2, 0): PayoffCell(*_STAG_HUNT_PAYOFFS[("import_special", "build")]),
+        (2, 1): PayoffCell(*_STAG_HUNT_PAYOFFS[("import_special", "no_build")]),
     },
 )
 
@@ -505,6 +534,15 @@ def _resolve_stag_hunt(player_choice: str, rng: random.Random) -> EncounterOutco
             "The warehouse owner decided the risk wasn't worth it and never "
             "built the cold store. Within two days, your entire shipment "
             "has spoiled, unsold.",
+        ]
+    elif player_choice == "import_bison":
+        lines = [
+            "You bring in a smaller batch of bison melons — rare, but "
+            "sturdier than the hill greens, and only partly dependent on "
+            "proper cold storage.",
+            "The warehouse owner never builds it. Without any cooling at "
+            "all, more of the batch spoils than you'd hoped, and what's "
+            "left barely covers what you paid for it.",
         ]
     else:
         lines = [
@@ -540,17 +578,26 @@ STAG_HUNT_ENCOUNTER = Encounter(
              "commit — you import, he builds — you'll both do very well. But "
              "if only one of you commits and the other plays it safe, whoever "
              "gambled alone takes the loss."),
+        Step("idea", "Three ways to bet",
+             "There's also a middle option: bison melons, a rarer fruit "
+             "that's sturdier than the hill greens — some spoilage without "
+             "cold storage, not a total loss. It's like the old hunting "
+             "story this game is named for: hunt a rabbit alone and you're "
+             "guaranteed something small; hunt a bison and you'll manage "
+             "even without help, just not much; hunt a stag and you either "
+             "feast together or come home with nothing."),
         Step("scale", "Your move", "What do you do?"),
     ],
     choices=[
-        EncounterChoice("import_special", "Import the special greens", "Big reward if the cold storage gets built — a real loss if it doesn't."),
-        EncounterChoice("import_regular", "Stick with your regular produce", "Smaller, steady profit no matter what he decides."),
+        EncounterChoice("import_special", "Import the special greens (the stag)", "Big reward if the cold storage gets built — a real loss if it doesn't."),
+        EncounterChoice("import_bison", "Import bison melons (the bison)", "A middle ground — some loss without cold storage, not a wipeout."),
+        EncounterChoice("import_regular", "Stick with your regular produce (the rabbit)", "Smaller, steady profit no matter what he decides."),
     ],
     resolve=_resolve_stag_hunt,
     quiz=QuizQuestion(
-        prompt="Why did importing the special greens lose you money this time, when Chapter 1's 'safe' choice was always correct regardless of the other side?",
+        prompt="Why does importing anything beyond your regular produce carry real risk here, when Chapter 1's 'safe' choice was always correct regardless of the other side?",
         options=[
-            "Because this game has no dominant strategy — the right move depends entirely on what the other person does, and you bet on trust that didn't pay off.",
+            "Because this game has no dominant strategy — the right move depends entirely on what the other person does, and reaching for a bigger opportunity is a bet on trust that doesn't always pay off.",
             "Because importing goods is against the rules.",
             "Because the warehouse owner cheated you on purpose.",
         ],
@@ -564,26 +611,29 @@ STAG_HUNT_ENCOUNTER = Encounter(
             lines=[
                 "This is a different kind of game from Chapters 1 and 2 — "
                 "there's no dominant strategy here. Importing the special "
-                "greens isn't always right or always wrong; it's only a "
-                "good move if the warehouse owner also commits.",
-                "This structure is called a Stag Hunt, from an old story "
-                "about two hunters: together they can catch a stag (a big "
-                "reward, but only if both commit to the hunt), or each can "
-                "catch a hare alone (small, safe, guaranteed).",
-                "Look at the matrix: if you BOTH commit (top-left), you "
-                "both do great. If you both play safe (bottom-right), you "
-                "both do fine. But if only one of you commits, that person "
-                "takes a real loss while the other stays safe.",
+                "greens or the bison melons isn't always right or wrong; "
+                "it's only a good move if the warehouse owner commits too.",
+                "This structure is called a Stag Hunt, from an old "
+                "hunting story with exactly the three options you just "
+                "had: a rabbit alone (small, safe, guaranteed), a bison "
+                "with partial help (a real middle ground), or a stag "
+                "together (the biggest reward — only if your partner "
+                "truly commits too).",
+                "Look at the matrix: bottom row, left column — both "
+                "committing to the stag — is the best outcome for both "
+                "of you. Top row, right column — both playing it safe — "
+                "is fine for both. Anything else costs someone.",
             ],
             show_matrix=True,
         ),
         LessonPage(
             concept_name="Two Nash Equilibria",
             lines=[
-                "Unlike Chapter 1's single equilibrium, this game has TWO "
-                "stable outcomes, both highlighted below: mutual "
-                "commitment (best for both) and mutual caution (safe, but "
-                "leaves value on the table).",
+                "Despite three options on the table, this game still has "
+                "exactly TWO stable outcomes, both highlighted below: "
+                "mutual commitment to the stag (best for both) and mutual "
+                "caution with regular produce (safe, but leaves value on "
+                "the table).",
                 "Both are genuine Nash equilibria — at either one, neither "
                 "side can do better by switching alone. Which one you land "
                 "on depends entirely on trust: would you have committed "
@@ -596,7 +646,33 @@ STAG_HUNT_ENCOUNTER = Encounter(
                 "often isn't enough.",
             ],
             show_matrix=True,
-            highlight_cells=[(0, 0), (1, 1)],
+            highlight_cells=[(0, 1), (2, 0)],
+        ),
+        LessonPage(
+            concept_name="Why the Middle Ground Never Wins Outright",
+            lines=[
+                "The bison melons look like a sensible hedge — some risk, "
+                "but not all of it. Yet check the matrix: bison is never "
+                "the BEST reply to either of the warehouse owner's two "
+                "possible moves. If he's building, you'd do better with "
+                "the stag; if he isn't, you'd do better with the rabbit. "
+                "A 'safe middle' option that's never anyone's best "
+                "response can't be a Nash equilibrium.",
+                "It's still a genuinely reasonable bet if you're not sure "
+                "which way he'll go: worked out as an expected value, "
+                "bison actually beats both other options for any belief "
+                "that he's roughly 50-62% likely to build. It's a real "
+                "hedge under real uncertainty, not just a trap for the "
+                "indecisive.",
+                "But the warehouse owner in this story isn't uncertain — "
+                "he's a fixed, risk-averse 'no' every time, the same as "
+                "every other deterministic opponent you've faced so far. "
+                "Once his behavior is known rather than merely believed, "
+                "hedging stops paying: the rabbit was strictly best "
+                "all along.",
+            ],
+            show_matrix=True,
+            highlight_row=1,
         ),
     ],
 )

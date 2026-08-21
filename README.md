@@ -579,6 +579,56 @@ equilibrium (Ch1) → the same idea generalized to N players (Ch2) → a game
 with no dominant strategy at all, where the outcome hinges on trust
 instead of self-interest (Ch3).
 
+**A third option — rabbit, bison, stag — direct feedback that 2 choices
+made the decision too easy.** Adds a middle tier, "bison melons": rarer
+than regular produce, sturdier than the special greens (some spoilage
+without cold storage, not a total loss). This is the actual classic
+extended framing of the hunting story the Stag Hunt is named after —
+rabbit alone (small, safe), bison with partial help (a real middle
+ground), stag together (the biggest prize, only with full commitment).
+
+Verified before writing narrative that adding a third row doesn't create
+a third, spurious equilibrium or dilute the lesson:
+
+```
+Nash equilibria check (row-best-response == row) and (col-best-response == col):
+  (regular, build)     -> NE: False
+  (regular, no_build)  -> NE: True
+  (bison,   build)     -> NE: False
+  (bison,   no_build)  -> NE: False
+  (special, build)     -> NE: True
+  (special, no_build)  -> NE: False
+```
+
+Exactly the same two equilibria survive (Regular+Doesn't-Build,
+Special+Builds) — Bison is never a best response to either of the
+warehouse owner's two pure moves, so it can't be a third stable outcome.
+But it isn't a decoy either: computing expected value against a *belief*
+(rather than certainty) about the warehouse owner's move shows Bison is
+uniquely optimal for any belief that he builds with probability roughly
+0.50-0.62 — a genuine hedge under real uncertainty. A third lesson page
+("Why the Middle Ground Never Wins Outright") walks through both halves
+of this directly: Bison would be the right call under genuine
+uncertainty, but this warehouse owner isn't uncertain — he's the same
+kind of deterministic, risk-averse opponent as every other chapter's NPC
+— so once his behavior is known rather than merely believed, the rabbit
+was strictly best all along.
+
+**A layout bug from the same family as Chapters 2's, caught the same
+way**: going from 2 rows to 3 pushed the lesson pages' text-plus-table
+combination to the edge of the fixed window again. Row labels were
+shortened to one line each ("Import regular produce" → "Regular
+produce," matching Chapter 2's fix) and page 1's prose was trimmed,
+verified by instrumenting `_draw_payoff_matrix()` to print its actual
+rendered bottom edge and confirming every lesson page's "Next" button
+rect stays within the 720px window before trusting a screenshot. The
+same pass also caught a genuine narrative error introduced while writing
+the new copy — an early draft described the stag-commitment equilibrium
+as sitting in the matrix's "right column," when the actual columns
+(`col_options=["Builds cold storage", "Doesn't build"]`) put it in the
+*left* column — corrected before shipping, not after a playtester
+noticed the matrix didn't match the words above it.
+
 ## Chapter 4 — The Juice Stall Standoff: Chicken, and burning your bridges
 
 Chapter 3 was a Stag Hunt: matching the other side was the *good* outcome.
