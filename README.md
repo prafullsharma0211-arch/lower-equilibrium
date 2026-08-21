@@ -963,6 +963,59 @@ player had to go check the HUD separately to see what it added up to.
   extending the same check the back button's own verification already
   established for every other phase.
 
+## A story beat before the finale, for a game that isn't scripted
+
+Direct feedback: rounds 9-10 dropped the player straight into the
+Solo/Approach/Intelligence game with no in-story explanation of why they
+suddenly need to network, or what the real odds/cost mechanic they're
+about to feel actually means — every other round had a setup narration
+and a lesson; the finale had neither.
+
+The finale can't reuse the `Encounter` framework outright, though —
+rounds 9-10 aren't a scripted chapter with one fixed choice and a payoff
+table to verify; they're the real, already-shipped Solo/Approach/
+Intelligence game, played against 15 live opponents with real randomness.
+Forcing it through a fake `EncounterChoice` list would mean picking from
+a handful of abstract options instead of an actual villager, and
+resolving through a scripted lookup instead of the real
+`ActionResolver`. Two lighter, narrative-only pieces instead:
+
+- **`FINALE_INTRO_STEPS` / `FINALE_LESSON`** (`story_games.py`) reuse the
+  exact `Step`/`LessonPage` shapes every chapter already uses, but with
+  no `EncounterChoice` or `resolve()` of their own — there's no separate
+  payoff table to invent and verify here, only a plain-language
+  description of the mechanic that already exists in `game_logic.py`'s
+  `SkillRelationship` odds, checked against the real numbers before
+  writing a word of narration: same-specialty is the easiest yes (70%
+  accept) but worth the least (+8 if it lands); fully complementary is
+  the hardest yes (40%) but worth the most (+28) — exactly the shape
+  described in the feedback ("chance of success is low if they have
+  complementary ability... but hitting a deal is difficult").
+- **Shown once each, reusing the `"encounter"` screen and
+  `encounter_phase`/`encounter_line_index` state instead of adding a new
+  screen and duplicating the reveal-one-line-at-a-time machinery**: a
+  setup storyboard (`"finale_intro"`) right before the human's first real
+  finale action, explaining in-story why the business has outgrown one
+  person and how Approach/Intelligence actually work; and a wrap-up
+  (`"finale_lesson"`) at the very start of the round right after, naming
+  the underlying concept — Search and Matching Under Uncertainty — and
+  reporting exactly what that first real decision earned or cost
+  (`{delta:+d} rupees — Rs {total} now`), the same "here's what you
+  actually got" instinct as every chapter's own summary screen.
+- **The horizontal icon storyboard renderer was extracted into
+  `_draw_step_storyboard()`**, shared by a chapter's own setup phase and
+  this briefing, rather than duplicated — the only two things that
+  changed are which `Step` list it's fed and what runs when the last one
+  is dismissed (`_encounter_to_choice` for a chapter, `_finale_intro_finish`
+  here), so this and every future non-chapter narrative beat gets the
+  exact same component for free.
+- **Verified end to end, not just visually**: a real playthrough was
+  driven through Chapters 1-8 with the intro's baseline captured right as
+  round 9 began, a real Approach action submitted, and the wrap-up
+  screen's reported delta confirmed to exactly match `human.points`
+  before vs. after that one action — not a hand-typed number, the real
+  `ActionResolver` outcome.
+
 ## Known limitations
 
 - Visuals are flat vector shapes, not sprite art — intentional, matches the

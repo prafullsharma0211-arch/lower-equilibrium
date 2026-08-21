@@ -17,7 +17,7 @@ import pygame
 import save_data
 from achievements import ACHIEVEMENTS, AchievementTracker
 from facilitator import FacilitatorClient, parse_dialogue
-from story_games import STORY_ENCOUNTERS, CENTIPEDE_PLAYER_POTS
+from story_games import STORY_ENCOUNTERS, CENTIPEDE_PLAYER_POTS, FINALE_INTRO_STEPS, FINALE_LESSON
 from game_logic import (
     ActionType,
     ApproachOutcome,
@@ -543,6 +543,15 @@ class App:
         self.encounter_line_index = 0  # how many lines of the current phase are revealed
         self._encounter_buttons: list = []
 
+        # The finale briefing (see _draw_finale_briefing) — a one-time
+        # setup storyboard before the human's first real connections-game
+        # round, and a one-time wrap-up lesson at the start of the round
+        # right after, reusing encounter_phase/encounter_line_index above
+        # rather than tracking a separate reveal position.
+        self._finale_intro_shown = False
+        self._finale_lesson_shown = False
+        self._finale_points_baseline = None  # int once round 9 begins, else None
+
         # Separate narration per screen — round-summary text (Home) must never
         # stomp on the market visit's own narration, and vice versa.
         self.home_narration = "Welcome. Choose an action once the round begins."
@@ -639,10 +648,13 @@ class App:
         self.encounter_quiz_correct = None
         self.encounter_lesson_page = 0
         self.encounter_line_index = 0  # how many lines of the current phase are revealed
+        self._finale_intro_shown = False
+        self._finale_lesson_shown = False
+        self._finale_points_baseline = None
         self.home_narration = (
-            "Round 1 of 20. Pick Solo for a safe guaranteed payoff, Approach to "
-            "risk money on a new connection, or Intelligence to scout someone "
-            "first — hover a button (or tap ? Help) for details."
+            "Pick Solo for a safe guaranteed payoff, Approach to risk money on "
+            "a new connection, or Intelligence to scout someone first — hover "
+            "a button (or tap ? Help) for details."
         )
         if not self.has_key:
             self.home_narration += " (No API key set — using local narration.)"
@@ -790,6 +802,33 @@ class App:
         if encounter_id and self.screen_state != "encounter":
             self._start_encounter(encounter_id)
             return
+
+        # Finale briefing (see _draw_finale_briefing) — a one-time setup
+        # storyboard right before the human's first real connections-game
+        # round, and a one-time wrap-up at the start of the round right
+        # after. Both gated on can_act and screen_state != "encounter" the
+        # same way the chapter check above is, so neither fires mid-round
+        # or a second time once its "shown" flag is set.
+        finale_rounds = sorted(self.game.human_finale_rounds)
+        if can_act and self.screen_state != "encounter" and finale_rounds:
+            if self.game.current_round == finale_rounds[0] and not self._finale_intro_shown:
+                self.current_encounter = None
+                self.encounter_phase = "finale_intro"
+                self.encounter_line_index = 0
+                self.screen_state = "encounter"
+                self.game.set_paused(True)
+                return
+            if (
+                len(finale_rounds) > 1
+                and self.game.current_round == finale_rounds[1]
+                and not self._finale_lesson_shown
+            ):
+                self.current_encounter = None
+                self.encounter_phase = "finale_lesson"
+                self.encounter_line_index = 0
+                self.screen_state = "encounter"
+                self.game.set_paused(True)
+                return
 
         self._set_buttons_enabled(can_act)
         if can_act:
@@ -1430,7 +1469,144 @@ class App:
 
         return y0 + header_h + cell_h * len(matrix.row_options)
 
+    def _draw_step_storyboard(self, surface, panel, steps, content_w, on_finish):
+        """The horizontal icon-storyboard reveal — one beat at a time,
+        numbered boxes, locked '?' for what's not reached yet. Shared by
+        a chapter's own setup phase and the finale briefing
+        (_draw_finale_briefing), which needs the identical component with
+        no real Encounter behind it."""
+        n = len(steps)
+        gap = 14
+        box_w = min(160, (content_w - gap * (n - 1)) // n)
+        box_h = 106  # tall enough for a 2-line wrapped caption without clipping
+        total_w = box_w * n + gap * (n - 1)
+        start_x = panel.left + 24 + (content_w - total_w) // 2
+        box_y = panel.top + 74
+
+        for i, step in enumerate(steps):
+            rect = pygame.Rect(start_x + i * (box_w + gap), box_y, box_w, box_h)
+            revealed = i <= self.encounter_line_index
+            active = i == self.encounter_line_index
+            bg = (58, 46, 28) if active else ((40, 40, 50) if revealed else (26, 26, 32))
+            border = (230, 179, 51) if active else ((90, 90, 100) if revealed else (48, 48, 56))
+            pygame.draw.rect(surface, bg, rect, border_radius=8)
+            pygame.draw.rect(surface, border, rect, 2 if active else 1, border_radius=8)
+
+            num_color = (230, 179, 51) if active else (COLOR_TEXT_DIM if revealed else (70, 70, 78))
+            num = self.font_encounter_small.render(str(i + 1), True, num_color)
+            surface.blit(num, (rect.left + 8, rect.top + 6))
+
+            if revealed:
+                draw_icon(surface, step.icon, (rect.centerx, rect.top + 38), scale=1.15)
+                cap_color = COLOR_TEXT if active else COLOR_TEXT_DIM
+                for j, cline in enumerate(wrap_text(step.caption, self.font_encounter_small, box_w - 16)[:2]):
+                    cap = self.font_encounter_small.render(cline, True, cap_color)
+                    surface.blit(cap, (rect.centerx - cap.get_width() // 2, rect.top + 60 + j * 20))
+            else:
+                lock = self.font_encounter.render("?", True, (70, 70, 78))
+                surface.blit(lock, (rect.centerx - lock.get_width() // 2, rect.centery - lock.get_height() // 2))
+
+            if i < n - 1:
+                line_color = (90, 90, 100) if i < self.encounter_line_index else (48, 48, 56)
+                pygame.draw.line(surface, line_color, (rect.right, rect.centery), (rect.right + gap, rect.centery), 2)
+
+        y = box_y + box_h + 22
+        current_text = steps[self.encounter_line_index].text
+        for wline in wrap_text(current_text, self.font_encounter, content_w):
+            surf = self.font_encounter.render(wline, True, COLOR_TEXT)
+            surface.blit(surf, (panel.left + 24, y))
+            y += 30
+
+        all_shown = self.encounter_line_index >= n - 1
+        label = "Continue" if all_shown else "Next"
+        advance = lambda: self._encounter_advance_lines(steps, on_finish)
+        btn = pygame.Rect(panel.right - 150, panel.bottom - 60, 126, 44)
+        self._encounter_button(surface, btn, label, advance)
+
+    def _finale_intro_finish(self):
+        # The player is about to make their first REAL connections-game
+        # decision — baseline captured here, not at round start, so the
+        # wrap-up lesson's "last round" delta is exactly what that one
+        # decision earned, uncontaminated by anything shown beforehand.
+        self._finale_intro_shown = True
+        self._finale_points_baseline = self.game.human.points
+        self.encounter_phase = None
+        self.screen_state = "home"
+        self.game.set_paused(False)
+        self._set_buttons_enabled(True)
+
+    def _finale_lesson_finish(self):
+        self._finale_lesson_shown = True
+        self.encounter_phase = None
+        self.screen_state = "home"
+        self.game.set_paused(False)
+        self._set_buttons_enabled(True)
+
+    def _draw_finale_briefing(self):
+        """Rounds 9-10 are the real Solo/Approach/Intelligence game, not a
+        scripted chapter — so there's no Encounter, choice, or payoff
+        table to verify here, only a plain-language explanation of the
+        mechanic that already exists in game_logic.py's SkillRelationship
+        odds (see story_games.py's FINALE_INTRO_STEPS/FINALE_LESSON for
+        the numbers this narration is checked against). Shown once before
+        the human's first real finale action (the setup storyboard) and
+        once more at the start of the round right after (the wrap-up),
+        matching every chapter's own setup/lesson shape without forcing a
+        fake choice into the Encounter framework to get there."""
+        surface = self.screen
+        surface.fill((46, 38, 28))
+        panel = pygame.Rect(0, 0, 900, 660)
+        panel.center = (WIDTH // 2, HEIGHT // 2)
+        pygame.draw.rect(surface, COLOR_PANEL, panel, border_radius=10)
+        self._encounter_buttons = []
+        content_w = panel.width - 48
+
+        if self.encounter_phase == "finale_intro":
+            title = self.font_big.render("Before The Final Stretch", True, COLOR_TEXT)
+            surface.blit(title, (panel.left + 24, panel.top + 20))
+            draw_icon(surface, "wheel", (panel.right - 50, panel.top + 42), scale=1.5)
+            self._draw_step_storyboard(surface, panel, FINALE_INTRO_STEPS, content_w, self._finale_intro_finish)
+            return
+
+        # "finale_lesson"
+        title = self.font_big.render("What That Actually Cost You", True, COLOR_TEXT)
+        surface.blit(title, (panel.left + 24, panel.top + 20))
+        draw_icon(surface, "wheel", (panel.right - 50, panel.top + 42), scale=1.5)
+
+        y = panel.top + 74
+        badge = self.font_encounter_small.render(f"Concept: {FINALE_LESSON.concept_name}", True, (230, 179, 51))
+        surface.blit(badge, (panel.left + 24, y))
+        y += 28
+
+        all_shown = self.encounter_line_index >= len(FINALE_LESSON.lines) - 1
+        y = self._draw_encounter_lines(surface, FINALE_LESSON.lines, panel.left + 24, y, content_w)
+
+        if all_shown:
+            baseline = self._finale_points_baseline if self._finale_points_baseline is not None else self.game.human.points
+            delta = self.game.human.points - baseline
+            delta_color = (140, 220, 140) if delta >= 0 else (230, 120, 120)
+            y += 10
+            result_label = self.font_encounter_small.render("Last round:", True, COLOR_TEXT_DIM)
+            surface.blit(result_label, (panel.left + 24, y))
+            result_value = self.font_encounter.render(
+                f"{delta:+d} rupees — Rs {self.game.human.points} now", True, delta_color,
+            )
+            surface.blit(result_value, (panel.left + 24, y + 26))
+
+        label = "Continue" if all_shown else "Next"
+        advance = lambda: self._encounter_advance_lines(FINALE_LESSON.lines, self._finale_lesson_finish)
+        btn = pygame.Rect(panel.right - 150, panel.bottom - 60, 126, 44)
+        self._encounter_button(surface, btn, label, advance)
+
     def _draw_encounter(self):
+        # The finale briefing (see _draw_finale_briefing) reuses this
+        # screen_state and encounter_phase/encounter_line_index, but has
+        # no real Encounter behind it — dispatch before touching
+        # self.current_encounter, which is None for these two phases.
+        if self.encounter_phase in ("finale_intro", "finale_lesson"):
+            self._draw_finale_briefing()
+            return
+
         surface = self.screen
         surface.fill((46, 38, 28))
 
@@ -1454,54 +1630,7 @@ class App:
         content_w = panel.width - 48
 
         if self.encounter_phase == "setup":
-            steps = enc.setup_steps
-            n = len(steps)
-            gap = 14
-            box_w = min(160, (content_w - gap * (n - 1)) // n)
-            box_h = 106  # tall enough for a 2-line wrapped caption without clipping
-            total_w = box_w * n + gap * (n - 1)
-            start_x = panel.left + 24 + (content_w - total_w) // 2
-            box_y = y
-
-            for i, step in enumerate(steps):
-                rect = pygame.Rect(start_x + i * (box_w + gap), box_y, box_w, box_h)
-                revealed = i <= self.encounter_line_index
-                active = i == self.encounter_line_index
-                bg = (58, 46, 28) if active else ((40, 40, 50) if revealed else (26, 26, 32))
-                border = (230, 179, 51) if active else ((90, 90, 100) if revealed else (48, 48, 56))
-                pygame.draw.rect(surface, bg, rect, border_radius=8)
-                pygame.draw.rect(surface, border, rect, 2 if active else 1, border_radius=8)
-
-                num_color = (230, 179, 51) if active else (COLOR_TEXT_DIM if revealed else (70, 70, 78))
-                num = self.font_encounter_small.render(str(i + 1), True, num_color)
-                surface.blit(num, (rect.left + 8, rect.top + 6))
-
-                if revealed:
-                    draw_icon(surface, step.icon, (rect.centerx, rect.top + 38), scale=1.15)
-                    cap_color = COLOR_TEXT if active else COLOR_TEXT_DIM
-                    for j, cline in enumerate(wrap_text(step.caption, self.font_encounter_small, box_w - 16)[:2]):
-                        cap = self.font_encounter_small.render(cline, True, cap_color)
-                        surface.blit(cap, (rect.centerx - cap.get_width() // 2, rect.top + 60 + j * 20))
-                else:
-                    lock = self.font_encounter.render("?", True, (70, 70, 78))
-                    surface.blit(lock, (rect.centerx - lock.get_width() // 2, rect.centery - lock.get_height() // 2))
-
-                if i < n - 1:
-                    line_color = (90, 90, 100) if i < self.encounter_line_index else (48, 48, 56)
-                    pygame.draw.line(surface, line_color, (rect.right, rect.centery), (rect.right + gap, rect.centery), 2)
-
-            y = box_y + box_h + 22
-            current_text = steps[self.encounter_line_index].text
-            for wline in wrap_text(current_text, self.font_encounter, content_w):
-                surf = self.font_encounter.render(wline, True, COLOR_TEXT)
-                surface.blit(surf, (panel.left + 24, y))
-                y += 30
-
-            all_shown = self.encounter_line_index >= n - 1
-            label = "Continue" if all_shown else "Next"
-            advance = lambda: self._encounter_advance_lines(steps, self._encounter_to_choice)
-            btn = pygame.Rect(panel.right - 150, panel.bottom - 60, 126, 44)
-            self._encounter_button(surface, btn, label, advance)
+            self._draw_step_storyboard(surface, panel, enc.setup_steps, content_w, self._encounter_to_choice)
 
         elif self.encounter_phase in ("choice", "choice2", "choice3") and enc.kind == "centipede":
             step = {"choice": 1, "choice2": 2, "choice3": 3}[self.encounter_phase]

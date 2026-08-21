@@ -1546,6 +1546,77 @@ GOAT_SIGNAL_ENCOUNTER = Encounter(
 )
 
 
+# ---------------------------------------------------------------------------
+# The finale briefing: rounds 9-10 (the connections game) aren't a scripted
+# chapter with a fixed payoff table like 1-8 — they're the real Solo/
+# Approach/Intelligence game (game_logic.py), played for real stakes
+# against 15 other villagers. Direct feedback asked for the player to be
+# told, in-story, why they suddenly need to network and how the mechanic
+# they're about to feel actually works, the same way every chapter
+# explains itself before and after the player commits to something.
+#
+# This is narrative-only — a setup storyboard (FINALE_INTRO_STEPS, shown
+# once before round 9's first real action) and a wrap-up (FINALE_LESSON,
+# shown once at the start of the round right after) — reusing the exact
+# Step/LessonPage shapes every chapter already uses, but with no
+# EncounterChoice/resolve() of its own, since the real mechanic already
+# IS the game: there's no separate scripted payoff table to verify here,
+# only a plain-language description of the one that already exists in
+# game_logic.py's SkillRelationship odds, checked against the actual
+# numbers below rather than asserted from memory:
+#   SAME:          accept 70%, payoff +8 if it lands
+#   ADJACENT:      accept 55%, payoff +16 if it lands
+#   COMPLEMENTARY: accept 40%, payoff +28 if it lands
+# Exactly the shape described: easiest with your own specialty, hardest
+# with a fully complementary one, and the hardest deal is worth the most
+# if it actually closes.
+# ---------------------------------------------------------------------------
+
+FINALE_INTRO_STEPS = [
+    Step("warning", "Too much to run alone",
+         "Your business has grown past what one person can juggle — the "
+         "accounts, the day-to-day operations, and getting the word out "
+         "are all pulling you in different directions at once."),
+    Step("wheel", "Help is out there",
+         "Fifteen other people in the village each bring a real "
+         "specialty — Marketing, Creativity, Finance & Analytics, or "
+         "Operations — but you don't know yet who's strong at what."),
+    Step("question", "Finding out costs you",
+         "You can Approach someone directly and try to team up, or "
+         "quietly gather Intelligence on them first. Either way costs "
+         "you money and time you'd otherwise spend running your own "
+         "shop — there's no free way to find out, and no guarantee it "
+         "works out."),
+    Step("approach", "Same, adjacent, or complementary",
+         "People who share your own specialty are the easiest to team "
+         "up with — but you already know what they know. People whose "
+         "skills complement yours completely are the hardest to "
+         "convince, yet worth the most to you if it actually works out."),
+    Step("scale", "Your move",
+         "From here on, every round is a real decision — who do you "
+         "approach, and is the risk worth it?"),
+]
+
+FINALE_LESSON = LessonPage(
+    concept_name="Search and Matching Under Uncertainty",
+    lines=[
+        "This is a real, named problem in economics: when you can't "
+        "observe someone's skill or reliability upfront, finding the "
+        "right partner takes costly search, not just a decision.",
+        "That search has a real trade-off built in. Approaching someone "
+        "just like you is the safest bet — a high chance they say yes — "
+        "but a match that only doubles what you already know isn't "
+        "worth much. Someone whose skills complement yours completely "
+        "is a much harder yes, but a real complementary partnership is "
+        "worth far more than teaming up with your own mirror image.",
+        "This is why job markets, business partnerships, and hiring all "
+        "lean on costly signals of their own — resumes, referrals, "
+        "trial projects — to cut down how much expensive searching it "
+        "takes to find a good match.",
+    ],
+)
+
+
 STORY_ENCOUNTERS: dict[str, Encounter] = {
     QUALITY_PRICE_ENCOUNTER.id: QUALITY_PRICE_ENCOUNTER,
     ROAD_FUND_ENCOUNTER.id: ROAD_FUND_ENCOUNTER,
